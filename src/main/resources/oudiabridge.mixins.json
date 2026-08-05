@@ -4,6 +4,8 @@
   "package": "com.oudiabridge.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
+    "TrainMixin",
+    "DepotMixin"
   ],
   "injectors": {
     "defaultRequire": 1
