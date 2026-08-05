@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "oudiabridge",
+  "version": "${version}",
+  "name": "MTR-OuDiaBridge",
+  "description": "",
+  "authors": [],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/oudiabridge/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "client": [
+      "com.oudiabridge.client.OudiabridgeClient"
+    ],
+    "main": [
+      "com.oudiabridge.Oudiabridge"
+    ]
+  },
+  "mixins": [
+    "oudiabridge.mixins.json",
+    {
+      "config": "oudiabridge.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
