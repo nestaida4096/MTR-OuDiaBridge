@@ -1,18 +1,16 @@
 package com.oudiabridge.client.mixin;
 
-import com.oudiabridge.client.screen.OudiaImportScreen;
+import com.oudiabridge.client.screen.DiaConfigScreen;
 import mtr.screen.DashboardScreen;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.text.Text;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(value = DashboardScreen.class, remap = false)
-public abstract class DashboardScreenMixin {  // ★継承完全削除
+public abstract class DashboardScreenMixin {
 
     private ButtonWidget oudiaImportButton;
 
@@ -20,17 +18,15 @@ public abstract class DashboardScreenMixin {  // ★継承完全削除
     private void addOudiaImportButton(CallbackInfo ci) {
         DashboardScreen screen = (DashboardScreen)(Object)this;
 
-        // ★MTR公式と同じボタン作成方法
+        // ボタンのラベルを「Oudiaダイヤ設定」に変更し、ダッシュボードScreenを直接開く
         this.oudiaImportButton = mtr.mappings.UtilitiesClient.newButton(
-                net.minecraft.text.Text.literal(".oud2インポート"),
+                net.minecraft.text.Text.literal("Oudiaダイヤ設定"),
                 button -> {
-                    System.out.println("🟢 ★★★ MTR公式ボタンクリック成功！！！★★★");
-                    MinecraftClient.getInstance().setScreen(new OudiaImportScreen(screen));
+                    MinecraftClient.getInstance().setScreen(new DiaConfigScreen(screen, null));
                 }
         );
 
-        // ★MTR公式と同じ位置設定
-        mtr.client.IDrawing.setPositionAndWidth(this.oudiaImportButton, screen.width - 280, screen.height - 20, 80);
+        mtr.client.IDrawing.setPositionAndWidth(this.oudiaImportButton, screen.width - 280, screen.height - 20, 90);
         screen.addDrawableChild(this.oudiaImportButton);
     }
 }

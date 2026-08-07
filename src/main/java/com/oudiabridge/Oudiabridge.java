@@ -4,12 +4,15 @@ import com.oudiabridge.sync.OudiaSavedState;
 import com.oudiabridge.sync.OudiaWorldSyncState;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.network.PacketByteBuf;
 import net.minecraft.util.Identifier;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
@@ -17,11 +20,15 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class Oudiabridge implements ModInitializer {
     public static final Identifier SYNC_PACKET_ID = new Identifier("oudiabridge", "sync_dia");
+    public static final Identifier CLEAR_PACKET_ID = new Identifier("oudiabridge", "clear_dia");
+    public static final Identifier SELECT_PROJECT_PACKET_ID = new Identifier("oudiabridge", "select_proj");
+    public static final Identifier DELETE_PROJECT_PACKET_ID = new Identifier("oudiabridge", "delete_proj");
+    public static final Identifier REQUEST_DIA_LIST_PACKET_ID = new Identifier("oudiabridge", "req_dia_list");
+    public static final Identifier RESPONSE_DIA_LIST_PACKET_ID = new Identifier("oudiabridge", "res_dia_list");
+    public static final Identifier TRAIN_STATE_BROADCAST_PACKET_ID = new Identifier("oudiabridge", "bc_railspeed");
 
-    // 分割データの受信バッファを保持するConcurrentHashMap
     private static final Map<UUID, ChunkBuffer> INCOMPLETE_TRANSFERS = new ConcurrentHashMap<>();
 
-    // パケット分割データを復元・再構築するための内部クラス
     private static class ChunkBuffer {
         final byte[][] chunks;
         final int totalChunks;
@@ -59,7 +66,7 @@ public class Oudiabridge implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        // クライアントからの分割パケット受信ハンドラ
+        // MTRダイヤプロジェクトの登録・更新ハンドラ
         ServerPlayNetworking.registerGlobalReceiver(SYNC_PACKET_ID, (server, player, handler, buf, responseSender) -> {
             UUID transferId = buf.readUuid();
             int chunkIndex = buf.readInt();
@@ -88,29 +95,25 @@ public class Oudiabridge implements ModInitializer {
                     if (payload == null) return;
 
                     OudiaWorldSyncState runtime = OudiaWorldSyncState.getInstance();
-                    runtime.clear();
+                    String projName = payload.contains("diaName") ? payload.getString("diaName") : "OuDia_Project";
+                    String projId = payload.contains("projId") ? payload.getString("projId") : projName;
 
-                    if (payload.contains("depotName")) {
-                        runtime.setDepotName(payload.getString("depotName"));
-                    }
-                    if (payload.contains("depotId")) {
-                        runtime.getDefaultTrainConfig().depotId = payload.getLong("depotId");
-                    }
+                    OudiaWorldSyncState.DiagramProject project = runtime.getOrCreateProject(projId, projName);
+                    project.trainConfigs.clear();
+                    project.stationConfigs.clear();
+
                     if (payload.contains("startStationId")) {
-                        runtime.getDefaultTrainConfig().startStationId = payload.getLong("startStationId");
+                        project.startStationId = payload.getLong("startStationId");
                     }
 
                     if (payload.contains("stations")) {
                         NbtCompound stations = payload.getCompound("stations");
                         for (String key : stations.getKeys()) {
                             NbtCompound value = stations.getCompound(key);
-                            OudiaWorldSyncState.StationRuntimeConfig cfg = runtime.getOrCreateStationConfig(key);
+                            OudiaWorldSyncState.StationRuntimeConfig cfg = project.getOrCreateStationConfig(key);
 
-                            // 新しいマッピングIDと種別の取得
                             cfg.mtrId = value.contains("mtrId") ? value.getLong("mtrId") : (value.contains("mtrStationId") ? value.getLong("mtrStationId") : -1L);
                             cfg.mappingType = value.contains("mappingType") ? value.getInt("mappingType") : 1;
-
-                            // 互換性維持
                             cfg.mtrStationId = cfg.mtrId;
                             cfg.mtrStationName = value.getString("mtrStationName");
                             cfg.enabled = !value.contains("enabled") || value.getBoolean("enabled");
@@ -120,45 +123,132 @@ public class Oudiabridge implements ModInitializer {
                     if (payload.contains("trains")) {
                         NbtCompound trains = payload.getCompound("trains");
                         for (String key : trains.getKeys()) {
-                            NbtCompound value = trains.getCompound(key);
-                            OudiaWorldSyncState.TrainRuntimeConfig cfg = runtime.getOrCreateTrainConfig(key);
-                            cfg.depotName = value.getString("depotName");
-                            cfg.depotLineName = value.getString("depotLineName");
-                            cfg.depotId = value.contains("depotId") ? value.getLong("depotId") : -1L;
-                            cfg.speedMultiplier = value.getDouble("speedMultiplier");
-                            cfg.departureOffsetTicks = value.getInt("departureOffsetTicks");
-                            cfg.minimumDwellTicks = value.getInt("minimumDwellTicks");
-                            cfg.maxRailSpeed = value.getInt("maxRailSpeed");
-                            cfg.firstArrivalTime = value.getString("firstArrivalTime");
-                            cfg.firstDepartureTime = value.getString("firstDepartureTime");
-                            cfg.startStationId = value.contains("startStationId") ? value.getLong("startStationId") : -1L;
+                            try {
+                                long trainId = Long.parseLong(key);
+                                NbtCompound value = trains.getCompound(key);
+                                OudiaWorldSyncState.TrainRuntimeConfig cfg = project.getOrCreateTrainConfig(trainId);
+                                cfg.depotName = value.getString("depotName");
+                                cfg.depotLineName = value.getString("depotLineName");
+                                cfg.depotId = value.contains("depotId") ? value.getLong("depotId") : -1L;
+                                cfg.speedMultiplier = value.getDouble("speedMultiplier");
+                                cfg.departureOffsetTicks = value.getInt("departureOffsetTicks");
+                                cfg.minimumDwellTicks = value.getInt("minimumDwellTicks");
+                                cfg.maxRailSpeed = value.getInt("maxRailSpeed");
+                                cfg.firstArrivalTime = value.getString("firstArrivalTime");
+                                cfg.firstDepartureTime = value.getString("firstDepartureTime");
+                                cfg.startStationId = value.contains("startStationId") ? value.getLong("startStationId") : -1L;
 
-                            // 全駅の時刻リスト (stops) ＋ 駅名の取り出し
-                            if (value.contains("stops")) {
-                                NbtList stopsList = value.getList("stops", 10);
-                                cfg.stopSchedules.clear();
-                                for (int i = 0; i < stopsList.size(); i++) {
-                                    NbtCompound stopComp = stopsList.getCompound(i);
-                                    cfg.stopSchedules.add(new OudiaWorldSyncState.StopSchedule(
-                                            stopComp.getString("arr"),
-                                            stopComp.getString("dep"),
-                                            stopComp.contains("name") ? stopComp.getString("name") : ""
-                                    ));
+                                if (value.contains("stops")) {
+                                    NbtList stopsList = value.getList("stops", 10);
+                                    cfg.stopSchedules.clear();
+                                    for (int i = 0; i < stopsList.size(); i++) {
+                                        NbtCompound stopComp = stopsList.getCompound(i);
+                                        cfg.stopSchedules.add(new OudiaWorldSyncState.StopSchedule(
+                                                stopComp.getString("arr"),
+                                                stopComp.getString("dep"),
+                                                stopComp.contains("name") ? stopComp.getString("name") : ""
+                                        ));
+                                    }
                                 }
+                            } catch (NumberFormatException ignored) {
                             }
                         }
                     }
 
-                    // ワールド保存用状態クラスへ反映
+                    runtime.setActiveProjectId(projId);
+
                     OudiaSavedState savedState = OudiaSavedState.get(player.getWorld());
                     if (savedState != null) {
                         savedState.copyFromRuntime();
                     }
 
-                    // 各車庫ごとの出庫スケジュールとインデックスを再構築
-                    runtime.rebuildDepotSchedules();
+                    sendServerStateToClient(player);
                 });
             }
         });
+
+        // 全クリアパケット
+        ServerPlayNetworking.registerGlobalReceiver(CLEAR_PACKET_ID, (server, player, handler, buf, responseSender) -> {
+            server.execute(() -> {
+                OudiaWorldSyncState runtime = OudiaWorldSyncState.getInstance();
+                runtime.clear();
+
+                OudiaSavedState savedState = OudiaSavedState.get(player.getWorld());
+                if (savedState != null) {
+                    savedState.clearAll();
+                }
+
+                sendServerStateToClient(player);
+            });
+        });
+
+        // 特定プロジェクトの作業プロジェクト化指定
+        ServerPlayNetworking.registerGlobalReceiver(SELECT_PROJECT_PACKET_ID, (server, player, handler, buf, responseSender) -> {
+            String projId = buf.readString();
+            server.execute(() -> {
+                OudiaWorldSyncState runtime = OudiaWorldSyncState.getInstance();
+                if (runtime.getProjects().containsKey(projId)) {
+                    runtime.setActiveProjectId(projId);
+
+                    OudiaSavedState savedState = OudiaSavedState.get(player.getWorld());
+                    if (savedState != null) {
+                        savedState.copyFromRuntime();
+                    }
+                }
+                sendServerStateToClient(player);
+            });
+        });
+
+        // 特定プロジェクトの削除指定
+        ServerPlayNetworking.registerGlobalReceiver(DELETE_PROJECT_PACKET_ID, (server, player, handler, buf, responseSender) -> {
+            String projId = buf.readString();
+            server.execute(() -> {
+                OudiaWorldSyncState runtime = OudiaWorldSyncState.getInstance();
+                runtime.removeProject(projId);
+
+                OudiaSavedState savedState = OudiaSavedState.get(player.getWorld());
+                if (savedState != null) {
+                    savedState.copyFromRuntime();
+                }
+
+                sendServerStateToClient(player);
+            });
+        });
+
+        // サーバー情報一覧リクエスト
+        ServerPlayNetworking.registerGlobalReceiver(REQUEST_DIA_LIST_PACKET_ID, (server, player, handler, buf, responseSender) -> {
+            server.execute(() -> sendServerStateToClient(player));
+        });
+    }
+
+    private void sendServerStateToClient(net.minecraft.server.network.ServerPlayerEntity player) {
+        OudiaWorldSyncState runtime = OudiaWorldSyncState.getInstance();
+        NbtCompound compound = new NbtCompound();
+        compound.putString("activeProjectId", runtime.getActiveProjectId());
+
+        NbtList projList = new NbtList();
+        for (OudiaWorldSyncState.DiagramProject proj : runtime.getProjects().values()) {
+            NbtCompound pComp = new NbtCompound();
+            pComp.putString("id", proj.id);
+            pComp.putString("name", proj.name);
+            pComp.putInt("trainCount", proj.trainConfigs.size());
+            pComp.putInt("stationCount", proj.stationConfigs.size());
+            projList.add(pComp);
+        }
+        compound.put("projects", projList);
+
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            NbtIo.writeCompressed(compound, baos);
+            byte[] bytes = baos.toByteArray();
+
+            PacketByteBuf resBuf = PacketByteBufs.create();
+            resBuf.writeInt(bytes.length);
+            resBuf.writeBytes(bytes);
+
+            ServerPlayNetworking.send(player, RESPONSE_DIA_LIST_PACKET_ID, resBuf);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.oudiabridge.client.screen;
 
 import com.oudiabridge.parser.OudiaParser;
+import com.oudiabridge.sync.OudiaWorldSyncState;
 import mtr.client.ClientData;
 import mtr.data.Depot;
 import mtr.data.Station;
@@ -17,6 +18,7 @@ import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.text.Text;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.*;
@@ -26,21 +28,38 @@ public class DiaConfigScreen extends Screen {
     private final DashboardScreen parent;
     private final OudiaParser.ParseResult data;
 
-    private static final int MAX_CHUNK_SIZE = 32000;
+    private static final int MAX_CHUNK_SIZE = 24000;
+
+    // タブ状態 (0: 管理ダッシュボード, 1: 駅マッピング, 2: 列車設定)
     private int activeTab = 0;
+
+    // GUI描画位置
     private int x, y, width, height;
 
-    private NamedOption selectedDepot = new NamedOption(-1L, "未選択", 0);
+    // サーバー上のプロジェクト情報キャッシュ
+    private static String serverActiveProjectId = "";
+    private static final List<ProjectSummary> serverProjects = new ArrayList<>();
+
+    // 選択中の起点駅
     private NamedOption selectedStartStation = new NamedOption(-1L, "未選択", 0);
 
+    // ドロップダウンリスト管理用
+    private final List<CustomDropdownWidget> allDropdowns = new ArrayList<>();
+
+    // コントロール保持 (状態リセット防止用キャッシュ)
     private final Map<Integer, TrainConfigControls> trainControlsMap = new HashMap<>();
     private final List<StationDropdown> stationDropdowns = new ArrayList<>();
+    private boolean isStationDropdownsInitialized = false;
 
+    private CustomDropdownWidget summaryStationDropdown;
+
+    // スクロールオフセット
+    private int dashboardScrollOffset = 0;
     private int stationScrollOffset = 0;
     private int trainScrollOffset = 0;
 
     public DiaConfigScreen(DashboardScreen parent, OudiaParser.ParseResult data) {
-        super(Text.literal("OuDia 連携設定"));
+        super(Text.literal("OuDia 連携ダッシュボード"));
         this.parent = parent;
         this.data = data;
     }
@@ -48,80 +67,59 @@ public class DiaConfigScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        this.width = 440;
-        this.height = 260;
+        this.width = 410;
+        this.height = 245;
         this.x = (this.client != null ? this.client.getWindow().getScaledWidth() : 0) / 2 - this.width / 2;
         this.y = (this.client != null ? this.client.getWindow().getScaledHeight() : 0) / 2 - this.height / 2;
+
+        registerServerResponseReceiver();
+        requestServerState();
+
+        if (!isStationDropdownsInitialized && data != null) {
+            setupStationDropdownsData();
+            isStationDropdownsInitialized = true;
+        }
 
         initUI();
     }
 
-    private void initUI() {
-        this.clearChildren();
+    private void registerServerResponseReceiver() {
+        ClientPlayNetworking.registerReceiver(com.oudiabridge.Oudiabridge.RESPONSE_DIA_LIST_PACKET_ID, (client, handler, buf, responseSender) -> {
+            int length = buf.readInt();
+            byte[] dataBytes = new byte[length];
+            buf.readBytes(dataBytes);
 
-        this.addDrawableChild(new ButtonWidget(this.x + 10, this.y + 10, 130, 20, Text.literal("概要 & 送信"), btn -> {
-            activeTab = 0;
-            initUI();
-        }));
+            try {
+                NbtCompound nbt = NbtIo.readCompressed(new ByteArrayInputStream(dataBytes));
+                if (nbt != null) {
+                    serverActiveProjectId = nbt.getString("activeProjectId");
+                    serverProjects.clear();
 
-        this.addDrawableChild(new ButtonWidget(this.x + 145, this.y + 10, 140, 20, Text.literal("駅・車庫マッピング (" + data.stations.size() + ")"), btn -> {
-            activeTab = 1;
-            initUI();
-        }));
-
-        this.addDrawableChild(new ButtonWidget(this.x + 290, this.y + 10, 140, 20, Text.literal("列車個別設定 (" + data.trains.size() + ")"), btn -> {
-            activeTab = 2;
-            initUI();
-        }));
-
-        if (activeTab == 0) {
-            initSummaryTab();
-        } else if (activeTab == 1) {
-            initStationsTab();
-        } else if (activeTab == 2) {
-            initTrainsTab();
-        }
-
-        this.addDrawableChild(new ButtonWidget(this.x + this.width - 75, this.y + this.height - 28, 65, 20, Text.literal("閉じる"), btn -> {
-            if (this.client != null) {
-                this.client.setScreen(parent);
+                    if (nbt.contains("projects")) {
+                        NbtList pList = nbt.getList("projects", 10);
+                        for (int i = 0; i < pList.size(); i++) {
+                            NbtCompound pComp = pList.getCompound(i);
+                            serverProjects.add(new ProjectSummary(
+                                    pComp.getString("id"),
+                                    pComp.getString("name"),
+                                    pComp.getInt("trainCount"),
+                                    pComp.getInt("stationCount")
+                            ));
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-        }));
+        });
     }
 
-    private void initSummaryTab() {
-        List<NamedOption> depotOptions = new ArrayList<>();
-        depotOptions.add(new NamedOption(-1L, "未選択", 0));
-        for (Depot depot : ClientData.DEPOTS) {
-            depotOptions.add(new NamedOption(depot.id, depot.name, 2));
-        }
-
-        this.addDrawableChild(new CustomDropdownWidget(
-                this.x + 130, this.y + 75, 260, 20,
-                "対象デポ: ", depotOptions, selectedDepot,
-                opt -> selectedDepot = opt
-        ));
-
-        List<NamedOption> stationOptions = new ArrayList<>();
-        stationOptions.add(new NamedOption(-1L, "未選択", 0));
-        for (Station station : ClientData.STATIONS) {
-            stationOptions.add(new NamedOption(station.id, station.name, 1));
-        }
-
-        this.addDrawableChild(new CustomDropdownWidget(
-                this.x + 130, this.y + 120, 260, 20,
-                "起点駅: ", stationOptions, selectedStartStation,
-                opt -> selectedStartStation = opt
-        ));
-
-        this.addDrawableChild(new ButtonWidget(
-                this.x + 130, this.y + 175, 260, 22,
-                Text.literal("MTRへダイヤを一括登録"),
-                btn -> registerToMtr()
-        ));
+    private void requestServerState() {
+        net.minecraft.network.PacketByteBuf buf = PacketByteBufs.create();
+        ClientPlayNetworking.send(com.oudiabridge.Oudiabridge.REQUEST_DIA_LIST_PACKET_ID, buf);
     }
 
-    private void initStationsTab() {
+    private void setupStationDropdownsData() {
         stationDropdowns.clear();
         List<NamedOption> mtrOptions = new ArrayList<>();
         mtrOptions.add(new NamedOption(-1L, "なし (無効)", 0));
@@ -132,10 +130,6 @@ public class DiaConfigScreen extends Screen {
         for (Depot d : ClientData.DEPOTS) {
             mtrOptions.add(new NamedOption(d.id, "[車庫] " + d.name, 2));
         }
-
-        int startY = this.y + 48;
-        int rowHeight = 28;
-        int maxVisible = 6;
 
         for (int i = 0; i < data.stations.size(); i++) {
             OudiaParser.StationData station = data.stations.get(i);
@@ -149,15 +143,126 @@ public class DiaConfigScreen extends Screen {
                 }
             }
 
-            StationDropdown dropdown = new StationDropdown(
-                    station.name,
-                    new CustomDropdownWidget(
-                            0, 0, 210, 20,
-                            "", mtrOptions, initialSelection, opt -> {}
-                    )
+            CustomDropdownWidget dd = new CustomDropdownWidget(
+                    0, 0, 180, 20,
+                    "", mtrOptions, initialSelection, opt -> {}, this
             );
+
+            StationDropdown dropdown = new StationDropdown(station.name, dd);
             stationDropdowns.add(dropdown);
         }
+    }
+
+    private void initUI() {
+        this.clearChildren();
+        this.allDropdowns.clear();
+
+        int tabWidth = 125;
+        int tabHeight = 20;
+
+        this.addDrawableChild(new ButtonWidget(this.x + 10, this.y + 10, tabWidth, tabHeight,
+                Text.literal((activeTab == 0 ? "■ " : "") + "プロジェクト一覧"), btn -> {
+            activeTab = 0;
+            initUI();
+        }));
+
+        if (data != null) {
+            this.addDrawableChild(new ButtonWidget(this.x + 140, this.y + 10, tabWidth, tabHeight,
+                    Text.literal((activeTab == 1 ? "■ " : "") + "駅マッピング (" + data.stations.size() + ")"), btn -> {
+                activeTab = 1;
+                initUI();
+            }));
+
+            this.addDrawableChild(new ButtonWidget(this.x + 270, this.y + 10, tabWidth, tabHeight,
+                    Text.literal((activeTab == 2 ? "■ " : "") + "列車設定 (" + data.trains.size() + ")"), btn -> {
+                activeTab = 2;
+                initUI();
+            }));
+        }
+
+        if (activeTab == 0) {
+            initDashboardTab();
+        } else if (activeTab == 1 && data != null) {
+            initStationsTab();
+        } else if (activeTab == 2 && data != null) {
+            initTrainsTab();
+        }
+
+        this.addDrawableChild(new ButtonWidget(this.x + this.width - 75, this.y + this.height - 25, 65, 20, Text.literal("閉じる"), btn -> {
+            if (this.client != null) {
+                this.client.setScreen(parent);
+            }
+        }));
+    }
+
+    private void initDashboardTab() {
+        // .oud2 インポート画面遷移ボタン
+        this.addDrawableChild(new ButtonWidget(
+                this.x + 20, this.y + 35, 170, 20,
+                Text.literal("📂 新規 .oud2 をインポート"),
+                btn -> {
+                    if (this.client != null) {
+                        this.client.setScreen(new OudiaImportScreen(parent));
+                    }
+                }
+        ));
+
+        if (data != null) {
+            // 反映ボタン
+            this.addDrawableChild(new ButtonWidget(
+                    this.x + 200, this.y + 35, 190, 20,
+                    Text.literal("★ 編集中のダイヤをサーバーへ保存"),
+                    btn -> registerToMtr()
+            ));
+        }
+
+        int startY = this.y + 80;
+        int rowHeight = 22;
+        int maxVisible = 4;
+
+        int totalRows = serverProjects.size();
+        for (int i = 0; i < maxVisible && (i + dashboardScrollOffset) < totalRows; i++) {
+            int idx = i + dashboardScrollOffset;
+            ProjectSummary proj = serverProjects.get(idx);
+            int rowY = startY + (i * rowHeight);
+
+            boolean isActive = proj.id.equals(serverActiveProjectId);
+
+            // 作業プロジェクト切り替えボタン
+            this.addDrawableChild(new ButtonWidget(
+                    this.x + 230, rowY, 110, 18,
+                    Text.literal(isActive ? "★ 作業中に設定済" : "作業プロジェクト化"),
+                    btn -> selectActiveProject(proj.id)
+            ));
+
+            // プロジェクト削除ボタン
+            this.addDrawableChild(new ButtonWidget(
+                    this.x + 345, rowY, 45, 18,
+                    Text.literal("削除"),
+                    btn -> deleteProject(proj.id)
+            ));
+        }
+
+        if (totalRows > maxVisible) {
+            this.addDrawableChild(new ButtonWidget(this.x + 392, startY, 15, 18, Text.literal("▲"), btn -> {
+                if (dashboardScrollOffset > 0) {
+                    dashboardScrollOffset--;
+                    initUI();
+                }
+            }));
+            this.addDrawableChild(new ButtonWidget(this.x + 392, startY + (maxVisible - 1) * rowHeight, 15, 18, Text.literal("▼"), btn -> {
+                if (dashboardScrollOffset < totalRows - maxVisible) {
+                    dashboardScrollOffset++;
+                    initUI();
+                }
+            }));
+        }
+    }
+
+    private void initStationsTab() {
+        int startY = this.y + 45;
+        int rowHeight = 24;
+        int maxVisible = 6;
 
         int totalRows = stationDropdowns.size();
         for (int i = 0; i < maxVisible && (i + stationScrollOffset) < totalRows; i++) {
@@ -165,19 +270,22 @@ public class DiaConfigScreen extends Screen {
             StationDropdown sd = stationDropdowns.get(idx);
             int rowY = startY + (i * rowHeight);
 
-            sd.widget.x = this.x + 185;
+            sd.widget.x = this.x + 170;
             sd.widget.y = rowY;
+            sd.widget.setOpen(false);
+
             this.addDrawableChild(sd.widget);
+            this.allDropdowns.add(sd.widget);
         }
 
         if (totalRows > maxVisible) {
-            this.addDrawableChild(new ButtonWidget(this.x + 405, startY, 20, 20, Text.literal("^"), btn -> {
+            this.addDrawableChild(new ButtonWidget(this.x + 365, startY, 25, 20, Text.literal("▲"), btn -> {
                 if (stationScrollOffset > 0) {
                     stationScrollOffset--;
                     initUI();
                 }
             }));
-            this.addDrawableChild(new ButtonWidget(this.x + 405, startY + (maxVisible - 1) * rowHeight, 20, 20, Text.literal("v"), btn -> {
+            this.addDrawableChild(new ButtonWidget(this.x + 365, startY + (maxVisible - 1) * rowHeight, 25, 20, Text.literal("▼"), btn -> {
                 if (stationScrollOffset < totalRows - maxVisible) {
                     stationScrollOffset++;
                     initUI();
@@ -187,20 +295,20 @@ public class DiaConfigScreen extends Screen {
     }
 
     private void initTrainsTab() {
-        int startY = this.y + 48;
-        int rowHeight = 30;
+        int startY = this.y + 60;
+        int rowHeight = 24;
         int maxVisible = 5;
 
         for (int i = 0; i < data.trains.size(); i++) {
             if (!trainControlsMap.containsKey(i)) {
                 TrainConfigControls ctrl = new TrainConfigControls();
-                ctrl.speedField = new TextFieldWidget(this.textRenderer, 0, 0, 55, 18, Text.literal(""));
+                ctrl.speedField = new TextFieldWidget(this.textRenderer, 0, 0, 45, 18, Text.literal(""));
                 ctrl.speedField.setText("1.0");
 
-                ctrl.maxSpeedField = new TextFieldWidget(this.textRenderer, 0, 0, 55, 18, Text.literal(""));
+                ctrl.maxSpeedField = new TextFieldWidget(this.textRenderer, 0, 0, 45, 18, Text.literal(""));
                 ctrl.maxSpeedField.setText("0");
 
-                ctrl.minDwellField = new TextFieldWidget(this.textRenderer, 0, 0, 55, 18, Text.literal(""));
+                ctrl.minDwellField = new TextFieldWidget(this.textRenderer, 0, 0, 45, 18, Text.literal(""));
                 ctrl.minDwellField.setText("20");
 
                 trainControlsMap.put(i, ctrl);
@@ -213,13 +321,13 @@ public class DiaConfigScreen extends Screen {
             TrainConfigControls ctrl = trainControlsMap.get(idx);
             int rowY = startY + (i * rowHeight);
 
-            ctrl.speedField.x = this.x + 160;
+            ctrl.speedField.x = this.x + 130;
             ctrl.speedField.y = rowY;
 
-            ctrl.maxSpeedField.x = this.x + 235;
+            ctrl.maxSpeedField.x = this.x + 210;
             ctrl.maxSpeedField.y = rowY;
 
-            ctrl.minDwellField.x = this.x + 310;
+            ctrl.minDwellField.x = this.x + 290;
             ctrl.minDwellField.y = rowY;
 
             this.addDrawableChild(ctrl.speedField);
@@ -228,13 +336,13 @@ public class DiaConfigScreen extends Screen {
         }
 
         if (totalRows > maxVisible) {
-            this.addDrawableChild(new ButtonWidget(this.x + 385, startY, 20, 20, Text.literal("^"), btn -> {
+            this.addDrawableChild(new ButtonWidget(this.x + 360, startY, 25, 20, Text.literal("▲"), btn -> {
                 if (trainScrollOffset > 0) {
                     trainScrollOffset--;
                     initUI();
                 }
             }));
-            this.addDrawableChild(new ButtonWidget(this.x + 385, startY + (maxVisible - 1) * rowHeight, 20, 20, Text.literal("v"), btn -> {
+            this.addDrawableChild(new ButtonWidget(this.x + 360, startY + (maxVisible - 1) * rowHeight, 25, 20, Text.literal("▼"), btn -> {
                 if (trainScrollOffset < totalRows - maxVisible) {
                     trainScrollOffset++;
                     initUI();
@@ -243,15 +351,37 @@ public class DiaConfigScreen extends Screen {
         }
     }
 
+    public void closeOtherDropdowns(CustomDropdownWidget current) {
+        for (CustomDropdownWidget dropdown : allDropdowns) {
+            if (dropdown != current) {
+                dropdown.setOpen(false);
+            }
+        }
+    }
+
+    private void selectActiveProject(String projId) {
+        net.minecraft.network.PacketByteBuf buf = PacketByteBufs.create();
+        buf.writeString(projId);
+        ClientPlayNetworking.send(com.oudiabridge.Oudiabridge.SELECT_PROJECT_PACKET_ID, buf);
+    }
+
+    private void deleteProject(String projId) {
+        net.minecraft.network.PacketByteBuf buf = PacketByteBufs.create();
+        buf.writeString(projId);
+        ClientPlayNetworking.send(com.oudiabridge.Oudiabridge.DELETE_PROJECT_PACKET_ID, buf);
+    }
+
     private void registerToMtr() {
+        if (data == null) return;
+
         NbtCompound payload = new NbtCompound();
-        payload.putString("depotName", selectedDepot.name);
-        payload.putLong("depotId", selectedDepot.id);
+        String projName = data.routeName != null && !data.routeName.isEmpty() ? data.routeName : "OuDia_Project";
+        payload.putString("diaName", projName);
+        payload.putString("projId", projName);
         payload.putLong("startStationId", selectedStartStation.id);
 
         NbtCompound stationTag = new NbtCompound();
-        for (int i = 0; i < stationDropdowns.size(); i++) {
-            StationDropdown sd = stationDropdowns.get(i);
+        for (StationDropdown sd : stationDropdowns) {
             NbtCompound sCompound = new NbtCompound();
             sCompound.putLong("mtrId", sd.widget.getSelected().id);
             sCompound.putInt("mappingType", sd.widget.getSelected().type);
@@ -267,8 +397,6 @@ public class DiaConfigScreen extends Screen {
             TrainConfigControls ctrl = trainControlsMap.get(i);
 
             NbtCompound tCompound = new NbtCompound();
-            tCompound.putString("depotName", selectedDepot.name);
-            tCompound.putLong("depotId", selectedDepot.id);
             tCompound.putLong("startStationId", selectedStartStation.id);
 
             double speedMul = 1.0D;
@@ -300,6 +428,7 @@ public class DiaConfigScreen extends Screen {
                     stName = data.stations.get(stop.stationIndex).name;
                 }
                 stopComp.putString("name", stName);
+
                 stopsList.add(stopComp);
             }
             tCompound.put("stops", stopsList);
@@ -353,45 +482,80 @@ public class DiaConfigScreen extends Screen {
     @Override
     public void render(MatrixStack matrices, int mouseX, int mouseY, float delta) {
         this.renderBackground(matrices);
-        fill(matrices, this.x, this.y, this.x + this.width, this.y + this.height, 0xC0101010);
 
-        super.render(matrices, mouseX, mouseY, delta);
+        fill(matrices, this.x, this.y, this.x + this.width, this.y + this.height, 0xEE1E1E2E);
+        fill(matrices, this.x, this.y, this.x + this.width, this.y + 30, 0xEE11111B);
+
+        fill(matrices, this.x, this.y, this.x + this.width, this.y + 1, 0xFF45475A);
+        fill(matrices, this.x, this.y + this.height - 1, this.x + this.width, this.y + this.height, 0xFF45475A);
 
         if (activeTab == 0) {
-            this.textRenderer.draw(matrices, "OuDia 概要設定", this.x + 20, this.y + 45, 0xFFFFFF);
-            this.textRenderer.draw(matrices, "路線名: " + data.routeName, this.x + 20, this.y + 215, 0x00E5FF);
-        } else if (activeTab == 1) {
-            this.textRenderer.draw(matrices, "OuDia 駅名", this.x + 20, this.y + 32, 0xAAAAAA);
-            this.textRenderer.draw(matrices, "MTR 紐付け先", this.x + 185, this.y + 32, 0xAAAAAA);
+            this.textRenderer.draw(matrices, "保存済みプロジェクト一覧", this.x + 20, this.y + 65, 0x89B4FA);
 
-            int startY = this.y + 48;
-            int rowHeight = 28;
+            int startY = this.y + 80;
+            int rowHeight = 22;
+            int maxVisible = 4;
+
+            for (int i = 0; i < maxVisible && (i + dashboardScrollOffset) < serverProjects.size(); i++) {
+                int idx = i + dashboardScrollOffset;
+                ProjectSummary proj = serverProjects.get(idx);
+                int rowY = startY + (i * rowHeight);
+
+                boolean isActive = proj.id.equals(serverActiveProjectId);
+                int textColor = isActive ? 0xA6E3A1 : 0xCDD6F4;
+                String displayTitle = (isActive ? "★ " : "") + proj.name + " (" + proj.trainCount + "列車)";
+
+                this.textRenderer.draw(matrices, displayTitle, this.x + 20, rowY + 4, textColor);
+            }
+        } else if (activeTab == 1 && data != null) {
+            int startY = this.y + 45;
+            int rowHeight = 24;
             int maxVisible = 6;
             for (int i = 0; i < maxVisible && (i + stationScrollOffset) < data.stations.size(); i++) {
                 int idx = i + stationScrollOffset;
                 String name = data.stations.get(idx).name;
-                this.textRenderer.draw(matrices, name, this.x + 20, startY + (i * rowHeight) + 6, 0xFFFFFF);
+                this.textRenderer.draw(matrices, name, this.x + 25, startY + (i * rowHeight) + 5, 0xCDD6F4);
             }
-        } else if (activeTab == 2) {
-            this.textRenderer.draw(matrices, "列車情報", this.x + 20, this.y + 32, 0xAAAAAA);
-            this.textRenderer.draw(matrices, "倍率", this.x + 160, this.y + 32, 0xAAAAAA);
-            this.textRenderer.draw(matrices, "最高速", this.x + 235, this.y + 32, 0xAAAAAA);
-            this.textRenderer.draw(matrices, "停車T", this.x + 310, this.y + 32, 0xAAAAAA);
+        } else if (activeTab == 2 && data != null) {
+            this.textRenderer.draw(matrices, "列車", this.x + 25, this.y + 42, 0x89B4FA);
+            this.textRenderer.draw(matrices, "速度倍率", this.x + 130, this.y + 42, 0x89B4FA);
+            this.textRenderer.draw(matrices, "最高速度", this.x + 210, this.y + 42, 0x89B4FA);
+            this.textRenderer.draw(matrices, "最小停車", this.x + 290, this.y + 42, 0x89B4FA);
 
-            int startY = this.y + 48;
-            int rowHeight = 30;
+            int startY = this.y + 60;
+            int rowHeight = 24;
             int maxVisible = 5;
             for (int i = 0; i < maxVisible && (i + trainScrollOffset) < data.trains.size(); i++) {
                 int idx = i + trainScrollOffset;
                 String name = "列車 #" + (idx + 1);
-                this.textRenderer.draw(matrices, name, this.x + 20, startY + (i * rowHeight) + 6, 0xFFFFFF);
+                this.textRenderer.draw(matrices, name, this.x + 25, startY + (i * rowHeight) + 5, 0xCDD6F4);
             }
+        }
+
+        super.render(matrices, mouseX, mouseY, delta);
+
+        for (CustomDropdownWidget dropdown : allDropdowns) {
+            dropdown.renderOverlay(matrices, mouseX, mouseY);
         }
     }
 
     @Override
     public boolean shouldPause() {
         return false;
+    }
+
+    private static class ProjectSummary {
+        final String id;
+        final String name;
+        final int trainCount;
+        final int stationCount;
+
+        ProjectSummary(String id, String name, int trainCount, int stationCount) {
+            this.id = id;
+            this.name = name;
+            this.trainCount = trainCount;
+            this.stationCount = stationCount;
+        }
     }
 
     private static class NamedOption {
@@ -426,69 +590,112 @@ public class DiaConfigScreen extends Screen {
         private final List<NamedOption> options;
         private NamedOption selectedOption;
         private final Consumer<NamedOption> onSelect;
+        private final DiaConfigScreen parentScreen;
         private boolean isOpen = false;
         private int scrollIndex = 0;
         private final int maxVisibleRows = 5;
         private final int itemHeight = 18;
+        private boolean isDraggingScrollbar = false;
 
-        public CustomDropdownWidget(int x, int y, int width, int height, String labelPrefix, List<NamedOption> options, NamedOption initial, Consumer<NamedOption> onSelect) {
+        public CustomDropdownWidget(int x, int y, int width, int height, String labelPrefix, List<NamedOption> options, NamedOption initial, Consumer<NamedOption> onSelect, DiaConfigScreen parentScreen) {
             super(x, y, width, height, Text.literal(labelPrefix + initial.name), btn -> {});
             this.labelPrefix = labelPrefix;
             this.options = options;
             this.selectedOption = initial;
             this.onSelect = onSelect;
+            this.parentScreen = parentScreen;
         }
 
         public NamedOption getSelected() {
             return selectedOption;
         }
 
+        public void setOpen(boolean open) {
+            this.isOpen = open;
+            if (!open) isDraggingScrollbar = false;
+        }
+
         @Override
         public void onPress() {
-            this.isOpen = !this.isOpen;
+            boolean nextState = !this.isOpen;
+            if (nextState) {
+                parentScreen.closeOtherDropdowns(this);
+            }
+            this.isOpen = nextState;
+            this.isDraggingScrollbar = false;
         }
 
         @Override
         public void renderButton(MatrixStack matrices, int mouseX, int mouseY, float delta) {
-            this.setMessage(Text.literal(labelPrefix + selectedOption.name));
+            this.setMessage(Text.literal(labelPrefix + selectedOption.name + (isOpen ? " ▲" : " ▼")));
             super.renderButton(matrices, mouseX, mouseY, delta);
+        }
 
-            if (isOpen) {
-                int drawerY = this.y + this.height;
-                int visibleRows = Math.min(options.size(), maxVisibleRows);
-                int drawerH = visibleRows * itemHeight;
+        public void renderOverlay(MatrixStack matrices, int mouseX, int mouseY) {
+            if (!isOpen || !this.visible) return;
 
-                fill(matrices, this.x, drawerY, this.x + this.width, drawerY + drawerH, 0xF018181B);
-                fill(matrices, this.x, drawerY, this.x + this.width, drawerY + drawerH, 0x80000000);
+            int drawerY = this.y + this.height;
+            int visibleRows = Math.min(options.size(), maxVisibleRows);
+            int drawerH = visibleRows * itemHeight;
+            int scrollbarWidth = 6;
 
-                int endIndex = Math.min(options.size(), scrollIndex + visibleRows);
-                for (int i = scrollIndex; i < endIndex; i++) {
-                    NamedOption option = options.get(i);
-                    int itemY = drawerY + ((i - scrollIndex) * itemHeight);
-                    boolean hovered = mouseX >= this.x && mouseX <= this.x + this.width &&
-                            mouseY >= itemY && mouseY < itemY + itemHeight;
-                    boolean selected = (option.id == selectedOption.id);
+            fill(matrices, this.x, drawerY, this.x + this.width, drawerY + drawerH, 0xFA181825);
+            fill(matrices, this.x - 1, drawerY - 1, this.x + this.width + 1, drawerY, 0xFF45475A);
+            fill(matrices, this.x - 1, drawerY + drawerH, this.x + this.width + 1, drawerY + drawerH + 1, 0xFF45475A);
 
-                    if (selected) {
-                        fill(matrices, this.x + 1, itemY + 1, this.x + this.width - 1, itemY + itemHeight - 1, 0xFF2563EB);
-                    } else if (hovered) {
-                        fill(matrices, this.x + 1, itemY + 1, this.x + this.width - 1, itemY + itemHeight - 1, 0xFF3F3F46);
-                    }
+            int maxScroll = Math.max(0, options.size() - maxVisibleRows);
+            int endIndex = Math.min(options.size(), scrollIndex + visibleRows);
 
-                    MinecraftClient.getInstance().textRenderer.draw(matrices, option.name, this.x + 5, itemY + 5, 0xFFFFFF);
+            for (int i = scrollIndex; i < endIndex; i++) {
+                NamedOption option = options.get(i);
+                int itemY = drawerY + ((i - scrollIndex) * itemHeight);
+                boolean hovered = mouseX >= this.x && mouseX <= this.x + this.width - (maxScroll > 0 ? scrollbarWidth : 0) &&
+                        mouseY >= itemY && mouseY < itemY + itemHeight;
+                boolean selected = (option.id == selectedOption.id);
+
+                if (selected) {
+                    fill(matrices, this.x + 1, itemY + 1, this.x + this.width - 1, itemY + itemHeight - 1, 0xFF313244);
+                } else if (hovered) {
+                    fill(matrices, this.x + 1, itemY + 1, this.x + this.width - 1, itemY + itemHeight - 1, 0xFF45475A);
                 }
+
+                MinecraftClient.getInstance().textRenderer.draw(
+                        matrices,
+                        option.name,
+                        this.x + 5,
+                        itemY + 5,
+                        selected ? 0x89B4FA : 0xCDD6F4
+                );
+            }
+
+            if (maxScroll > 0) {
+                int trackX = this.x + this.width - scrollbarWidth;
+                fill(matrices, trackX, drawerY, trackX + scrollbarWidth, drawerY + drawerH, 0xFF11111B);
+
+                int thumbHeight = Math.max(8, (int) ((float) visibleRows / options.size() * drawerH));
+                int thumbY = drawerY + (int) ((float) scrollIndex / maxScroll * (drawerH - thumbHeight));
+
+                fill(matrices, trackX, thumbY, trackX + scrollbarWidth, thumbY + thumbHeight, 0xFF89B4FA);
             }
         }
 
         @Override
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
-            if (isOpen) {
+            if (isOpen && this.visible) {
                 int drawerY = this.y + this.height;
                 int visibleRows = Math.min(options.size(), maxVisibleRows);
                 int drawerH = visibleRows * itemHeight;
+                int maxScroll = Math.max(0, options.size() - maxVisibleRows);
 
                 if (mouseX >= this.x && mouseX <= this.x + this.width &&
                         mouseY >= drawerY && mouseY <= drawerY + drawerH) {
+
+                    if (maxScroll > 0 && mouseX >= this.x + this.width - 8) {
+                        isDraggingScrollbar = true;
+                        updateScrollFromMouseY(mouseY, drawerY, drawerH);
+                        return true;
+                    }
+
                     int clickedIdx = scrollIndex + (int) ((mouseY - drawerY) / itemHeight);
                     if (clickedIdx >= 0 && clickedIdx < options.size()) {
                         selectedOption = options.get(clickedIdx);
@@ -496,25 +703,61 @@ public class DiaConfigScreen extends Screen {
                         isOpen = false;
                         return true;
                     }
-                } else {
+                } else if (!(mouseX >= this.x && mouseX <= this.x + this.width && mouseY >= this.y && mouseY <= this.y + this.height)) {
                     isOpen = false;
+                    isDraggingScrollbar = false;
                 }
             }
             return super.mouseClicked(mouseX, mouseY, button);
         }
 
         @Override
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            if (isOpen && isDraggingScrollbar) {
+                int drawerY = this.y + this.height;
+                int visibleRows = Math.min(options.size(), maxVisibleRows);
+                int drawerH = visibleRows * itemHeight;
+                updateScrollFromMouseY(mouseY, drawerY, drawerH);
+                return true;
+            }
+            return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        }
+
+        @Override
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            isDraggingScrollbar = false;
+            return super.mouseReleased(mouseX, mouseY, button);
+        }
+
+        @Override
         public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
-            if (isOpen) {
-                if (amount < 0 && scrollIndex < options.size() - maxVisibleRows) {
-                    scrollIndex++;
-                    return true;
-                } else if (amount > 0 && scrollIndex > 0) {
-                    scrollIndex--;
-                    return true;
+            if (isOpen && this.visible) {
+                int drawerY = this.y + this.height;
+                int visibleRows = Math.min(options.size(), maxVisibleRows);
+                int drawerH = visibleRows * itemHeight;
+
+                if (mouseX >= this.x && mouseX <= this.x + this.width &&
+                        mouseY >= this.y && mouseY <= drawerY + drawerH) {
+                    int maxScroll = Math.max(0, options.size() - maxVisibleRows);
+                    if (amount < 0 && scrollIndex < maxScroll) {
+                        scrollIndex++;
+                        return true;
+                    } else if (amount > 0 && scrollIndex > 0) {
+                        scrollIndex--;
+                        return true;
+                    }
                 }
             }
             return super.mouseScrolled(mouseX, mouseY, amount);
+        }
+
+        private void updateScrollFromMouseY(double mouseY, int drawerY, int drawerH) {
+            int maxScroll = Math.max(0, options.size() - maxVisibleRows);
+            if (maxScroll <= 0) return;
+
+            double relativeY = Math.max(0, Math.min(drawerH, mouseY - drawerY));
+            scrollIndex = (int) Math.round((relativeY / drawerH) * maxScroll);
+            scrollIndex = Math.max(0, Math.min(maxScroll, scrollIndex));
         }
     }
 }

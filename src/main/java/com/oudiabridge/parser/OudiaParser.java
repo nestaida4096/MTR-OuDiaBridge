@@ -83,37 +83,33 @@ public class OudiaParser {
 
     /**
      * EkiJikoku文字列の解析
-     * 例: ,,,1;114354$0,1;114550/114620$0,2$0,2;115111/$0
+     * 上り（Nobori）の場合はOuDiaの仕様上、路線駅定義（0〜N）の順で文字列が記録されるが、
+     * 実際の運行順序は（N〜0）となるため、駅インデックスを反転して対応付けます。
      */
     private static void parseTimetable(String rawData, TrainData train, int stationCount) {
-        // カンマ区切りで各駅のデータに分割
         String[] stationEntries = rawData.split(",", -1);
+        boolean isNobori = "Nobori".equalsIgnoreCase(train.direction);
 
         for (int i = 0; i < stationEntries.length; i++) {
             String entry = stationEntries[i].trim();
             StopTime stopTime = new StopTime();
-            stopTime.stationIndex = i;
+            // 上りの場合は実際の進行順（N-1-i）に駅インデックスを対応付け
+            stopTime.stationIndex = isNobori ? (stationCount - 1 - i) : i;
 
             if (entry.isEmpty()) {
-                // 時刻データなし（採時対象外または未設定）
                 stopTime.stopType = StopType.NONE;
             } else {
-                // 番線情報などの属性（$0 や $1）を分離
                 String timePart = entry.contains("$") ? entry.split("\\$")[0] : entry;
 
                 if (timePart.startsWith("1;")) {
-                    // 停車 (例: 1;114550/114620 または 1;114354)
                     stopTime.stopType = StopType.STOP;
                     parseArrivalAndDeparture(timePart.substring(2), stopTime);
                 } else if (timePart.startsWith("2;")) {
-                    // 通過（通過時刻の指定あり 例: 2;115111/）
                     stopTime.stopType = StopType.PASS;
                     parseArrivalAndDeparture(timePart.substring(2), stopTime);
                 } else if (timePart.equals("2")) {
-                    // 通過（通過時刻の指定なし）
                     stopTime.stopType = StopType.PASS;
                 } else if (timePart.startsWith("1")) {
-                    // 時刻記述がない停車設定
                     stopTime.stopType = StopType.STOP;
                 } else {
                     stopTime.stopType = StopType.NONE;
@@ -126,12 +122,10 @@ public class OudiaParser {
 
     private static void parseArrivalAndDeparture(String timeStr, StopTime stopTime) {
         if (timeStr.contains("/")) {
-            // 着時刻 / 発時刻
             String[] times = timeStr.split("/", -1);
             stopTime.arrivalTime = times[0];
             stopTime.departureTime = times.length > 1 ? times[1] : "";
         } else {
-            // 単一時刻（始発の発時刻、または終着の着時刻など）
             stopTime.departureTime = timeStr;
         }
     }
@@ -180,9 +174,6 @@ public class OudiaParser {
         public String departureTime = ""; // 発時刻 ("114620" など)
     }
 
-    /**
-     * StopTime へのエイリアスクラス（型名の表記ブレによるビルド不具合を防ぎます）
-     */
     public static class StopData extends StopTime {
     }
 
