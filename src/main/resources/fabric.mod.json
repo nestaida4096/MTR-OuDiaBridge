@@ -3,9 +3,14 @@
   "id": "oudiabridge",
   "version": "${version}",
   "name": "MTR OuDiaSecondV2 Bridge",
-  "description": "",
-  "authors": [],
-  "contact": {},
+  "description": "MTR3においてダイヤ運転を行うMod。対応は日本語のみ / Japanese Language Only",
+  "authors": [
+    "(Creator: Botamochi129)",
+    "Algoris"
+  ],
+  "contact": {
+    "Discord": "algorism46281"
+  },
   "license": "MIT",
   "icon": "assets/oudiabridge/icon.png",
   "environment": "*",
