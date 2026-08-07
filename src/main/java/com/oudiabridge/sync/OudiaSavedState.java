@@ -1,6 +1,5 @@
 package com.oudiabridge.sync;
 
-import net.minecraft.datafixer.DataFixTypes;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.server.world.ServerWorld;
@@ -23,7 +22,10 @@ public class OudiaSavedState extends PersistentState {
     }
 
     public static OudiaSavedState get(ServerWorld world) {
-        PersistentStateManager manager = world.getPersistentStateManager();
+        if (world == null) return null;
+        // 異次元にいる場合でも常にオーバーワールドの PersistentStateManager (world/data) を利用する
+        ServerWorld overworld = world.getServer() != null ? world.getServer().getOverworld() : world;
+        PersistentStateManager manager = (overworld != null ? overworld : world).getPersistentStateManager();
         return manager.getOrCreate(OudiaSavedState::createFromNbt, OudiaSavedState::new, KEY);
     }
 

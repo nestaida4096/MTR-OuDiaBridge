@@ -3,12 +3,14 @@ package com.oudiabridge;
 import com.oudiabridge.sync.OudiaSavedState;
 import com.oudiabridge.sync.OudiaWorldSyncState;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.PacketByteBuf;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 
 import java.io.ByteArrayInputStream;
@@ -66,6 +68,28 @@ public class Oudiabridge implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        // サーバー起動完了時: ワールドデータ (.dat) から実行時メモリへ復元
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            ServerWorld overworld = server.getOverworld();
+            if (overworld != null) {
+                OudiaSavedState savedState = OudiaSavedState.get(overworld);
+                if (savedState != null) {
+                    savedState.applyToRuntime();
+                }
+            }
+        });
+
+        // サーバー停止前: 実行時メモリの最新状態を保存データへ複製
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            ServerWorld overworld = server.getOverworld();
+            if (overworld != null) {
+                OudiaSavedState savedState = OudiaSavedState.get(overworld);
+                if (savedState != null) {
+                    savedState.copyFromRuntime();
+                }
+            }
+        });
+
         // MTRダイヤプロジェクトの登録・更新ハンドラ
         ServerPlayNetworking.registerGlobalReceiver(SYNC_PACKET_ID, (server, player, handler, buf, responseSender) -> {
             UUID transferId = buf.readUuid();
