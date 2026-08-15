@@ -1,6 +1,7 @@
 package com.oudiabridge.mixin;
 
 import com.oudiabridge.Oudiabridge;
+import com.oudiabridge.sync.OudiaServerSpeedManager;
 import com.oudiabridge.sync.OudiaWorldSyncState;
 import mtr.data.Depot;
 import mtr.data.Train;
@@ -10,6 +11,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.world.World;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -48,35 +50,64 @@ public abstract class TrainMixin {
     @Shadow(remap = false)
     protected float doorValue;
 
+    @Shadow(remap = false)
+    protected double railProgress;
+
+    @Shadow(remap = false) @Final
+    protected List<Double> distances;
+
+    @Shadow(remap = false)
+    protected abstract boolean openDoors();
+
     private boolean lastIsOnRoute = false;
     private Long matchedTrainConfigId = null;
 
-    // 折り返し時点でのMTR側の駅インデックス(stopIndex)を記憶
     private int turnaroundStopIndexOffset = 0;
-
     private int lastLoggedStopIndex = -1;
     private float lastLoggedSpeed = -1.0F;
 
-    // 現在の駅に実際に停車した時点で確定させた総停車Tick数（毎ティック変動防止用）
-    private int fixedCurrentDwellTicks = -1;
+    private boolean isFirstRailSpeedCall = false;
+    private float currentTickCalculatedSpeed = -1.0F;
 
     private World world;
+    private Depot currentDepot;
     private int broadcastTickCounter = 0;
 
+    // 停車中の駅インデックスの固定用フィールド
+    private int lockedStationStopIndex = -1;
+
+    /**
+     * OuDia形式の時刻文字列（HH:mm:ss, HH:mm, HHmmssなど）を秒数に変換する
+     */
     private int parseOudiaTimeToSeconds(String timeStr) {
         if (timeStr == null || timeStr.trim().isEmpty()) {
             return -1;
         }
-        String clean = timeStr.replaceAll("[^0-9]", "");
+        String clean = timeStr.trim();
+
+        // HH:mm:ss または HH:mm 形式の処理
+        if (clean.contains(":")) {
+            String[] parts = clean.split(":");
+            try {
+                int h = Integer.parseInt(parts[0]);
+                int m = Integer.parseInt(parts[1]);
+                int s = parts.length > 2 ? Integer.parseInt(parts[2]) : 0;
+                if (h < 0 || h >= 24 || m < 0 || m >= 60 || s < 0 || s >= 60) return -1;
+                return h * 3600 + m * 60 + s;
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+
+        // 数字のみの文字列処理
+        clean = clean.replaceAll("[^0-9]", "");
         if (clean.isEmpty()) return -1;
 
         if (clean.length() == 3) {
-            clean = "0" + clean;
-        }
-        if (clean.length() == 4) {
+            clean = "0" + clean + "00";
+        } else if (clean.length() == 4) {
             clean += "00";
-        }
-        if (clean.length() == 5) {
+        } else if (clean.length() == 5) {
             clean = "0" + clean;
         }
 
@@ -98,19 +129,8 @@ public abstract class TrainMixin {
     }
 
     private long getDepartedDepotId() {
-        try {
-            if (this.sidingId != 0) {
-                OudiaWorldSyncState runtime = OudiaWorldSyncState.getInstance();
-                OudiaWorldSyncState.DiagramProject activeProject = runtime.getActiveProject();
-                if (activeProject != null) {
-                    for (OudiaWorldSyncState.StationRuntimeConfig stationCfg : activeProject.stationConfigs.values()) {
-                        if (stationCfg.mappingType == 2 && stationCfg.mtrId > 0) {
-                            return stationCfg.mtrId;
-                        }
-                    }
-                }
-            }
-        } catch (Exception ignored) {
+        if (this.currentDepot != null) {
+            return this.currentDepot.id;
         }
         return -1L;
     }
@@ -125,7 +145,7 @@ public abstract class TrainMixin {
     }
 
     private OudiaWorldSyncState.StopSchedule getActualFirstStop(OudiaWorldSyncState.TrainRuntimeConfig cfg) {
-        if (cfg == null || cfg.stopSchedules.isEmpty()) return null;
+        if (cfg == null || cfg.stopSchedules == null || cfg.stopSchedules.isEmpty()) return null;
         for (OudiaWorldSyncState.StopSchedule stop : cfg.stopSchedules) {
             if (stop != null) {
                 boolean hasArr = stop.arrivalTime != null && !stop.arrivalTime.trim().isEmpty();
@@ -139,7 +159,7 @@ public abstract class TrainMixin {
     }
 
     private OudiaWorldSyncState.StopSchedule getActualLastStop(OudiaWorldSyncState.TrainRuntimeConfig cfg) {
-        if (cfg == null || cfg.stopSchedules.isEmpty()) return null;
+        if (cfg == null || cfg.stopSchedules == null || cfg.stopSchedules.isEmpty()) return null;
         for (int i = cfg.stopSchedules.size() - 1; i >= 0; i--) {
             OudiaWorldSyncState.StopSchedule stop = cfg.stopSchedules.get(i);
             if (stop != null) {
@@ -153,9 +173,6 @@ public abstract class TrainMixin {
         return cfg.getStopSchedule(cfg.stopSchedules.size() - 1);
     }
 
-    /**
-     * 現在のMTR上の生の駅インデックス(stopIndex)を取得する
-     */
     private int getMtrRawStopIndex() {
         try {
             if (this.path != null && !this.path.isEmpty()) {
@@ -170,11 +187,30 @@ public abstract class TrainMixin {
         return 0;
     }
 
-    /**
-     * OuDiaダイヤと照合するための、オフセット調整済みの駅インデックスを取得する
-     */
     private int getCurrentStationStopIndex() {
+        // 停車中で固定中のインデックスがあれば優先的に使用する
+        if (this.speed <= 0.001F && this.lockedStationStopIndex >= 0) {
+            return this.lockedStationStopIndex;
+        }
         return Math.max(0, getMtrRawStopIndex() - turnaroundStopIndexOffset);
+    }
+
+    /**
+     * 該当駅の有効な発車時刻文字列を取得する（途中駅で誤って始発駅時刻へフォールバックするのを防ぐ）
+     */
+    private String getEffectiveDepartureTime(OudiaWorldSyncState.TrainRuntimeConfig config, OudiaWorldSyncState.StopSchedule stop, int stationStopIndex) {
+        if (stop != null) {
+            if (stop.departureTime != null && !stop.departureTime.trim().isEmpty()) {
+                return stop.departureTime.trim();
+            }
+            if (stop.arrivalTime != null && !stop.arrivalTime.trim().isEmpty()) {
+                return stop.arrivalTime.trim();
+            }
+        }
+        if (stationStopIndex == 0 && config != null && config.firstDepartureTime != null && !config.firstDepartureTime.trim().isEmpty()) {
+            return config.firstDepartureTime.trim();
+        }
+        return null;
     }
 
     private OudiaWorldSyncState.TrainRuntimeConfig resolveOrSnapTrainConfig(long trainId) {
@@ -189,32 +225,70 @@ public abstract class TrainMixin {
 
         if (isOnRoute && !lastIsOnRoute) {
             lastIsOnRoute = true;
-            turnaroundStopIndexOffset = 0; // ルート開始時にオフセットをリセット
+            turnaroundStopIndexOffset = 0;
             lastLoggedStopIndex = -1;
-            fixedCurrentDwellTicks = -1;
+            lockedStationStopIndex = -1;
 
             long currentDepotId = getDepartedDepotId();
+
+            boolean isDepotRegisteredInProject = false;
+            if (currentDepotId > 0) {
+                for (OudiaWorldSyncState.StationRuntimeConfig stationCfg : activeProject.stationConfigs.values()) {
+                    if (stationCfg.mappingType == 2 && stationCfg.mtrId == currentDepotId) {
+                        isDepotRegisteredInProject = true;
+                        break;
+                    }
+                }
+                if (activeProject.depotId == currentDepotId) {
+                    isDepotRegisteredInProject = true;
+                }
+            }
+
+            if (currentDepotId > 0 && !isDepotRegisteredInProject) {
+                matchedTrainConfigId = null;
+                Oudiabridge.logToChat(String.format("ダイヤ対象外車庫からの出庫を検出: Train ID = %d (Depot ID = %d は登録されていません)", trainId, currentDepotId));
+                return null;
+            }
+
             long bestMatchId = -1L;
             int minTimeDiff = Integer.MAX_VALUE;
 
             for (Map.Entry<Long, OudiaWorldSyncState.TrainRuntimeConfig> entry : activeProject.trainConfigs.entrySet()) {
                 OudiaWorldSyncState.TrainRuntimeConfig cfg = entry.getValue();
 
-                OudiaWorldSyncState.StopSchedule firstStop = getActualFirstStop(cfg);
-                String startStationName = firstStop != null ? firstStop.stationName : "";
+                boolean isMatchingDepot = true;
 
-                OudiaWorldSyncState.StationRuntimeConfig stationCfg = activeProject.stationConfigs.get(startStationName);
-                boolean isDepotStart = (stationCfg != null && stationCfg.mappingType == 2);
-                boolean isMatchingDepot = (currentDepotId == -1L || (stationCfg != null && stationCfg.mtrId == currentDepotId));
+                if (currentDepotId > 0) {
+                    if (cfg.depotId > 0) {
+                        if (cfg.depotId != currentDepotId) {
+                            isMatchingDepot = false;
+                        }
+                    } else {
+                        OudiaWorldSyncState.StopSchedule firstStop = getActualFirstStop(cfg);
+                        String startStationName = firstStop != null ? firstStop.stationName : "";
+                        OudiaWorldSyncState.StationRuntimeConfig stationCfg = activeProject.stationConfigs.get(startStationName);
 
-                if (isDepotStart && isMatchingDepot) {
-                    String firstDepStr = firstStop != null && !firstStop.departureTime.isEmpty() ? firstStop.departureTime : cfg.firstDepartureTime;
+                        if (stationCfg != null && stationCfg.mappingType == 2 && stationCfg.mtrId > 0) {
+                            if (stationCfg.mtrId != currentDepotId) {
+                                isMatchingDepot = false;
+                            }
+                        }
+                    }
+                }
+
+                if (isMatchingDepot) {
+                    OudiaWorldSyncState.StopSchedule firstStop = getActualFirstStop(cfg);
+
+                    String firstDepStr = (cfg.firstDepartureTime != null && !cfg.firstDepartureTime.trim().isEmpty())
+                            ? cfg.firstDepartureTime
+                            : (firstStop != null && !firstStop.departureTime.trim().isEmpty() ? firstStop.departureTime : (firstStop != null ? firstStop.arrivalTime : ""));
+
                     int targetSec = parseOudiaTimeToSeconds(firstDepStr);
                     if (targetSec >= 0) {
                         int diff = Math.abs(currentSec - targetSec);
                         if (diff > 43200) diff = 86400 - diff;
 
-                        if (diff <= 600 && diff < minTimeDiff) {
+                        if (diff <= 60 && diff < minTimeDiff) {
                             minTimeDiff = diff;
                             bestMatchId = entry.getKey();
                         }
@@ -224,28 +298,30 @@ public abstract class TrainMixin {
 
             if (bestMatchId != -1L) {
                 matchedTrainConfigId = bestMatchId;
-                System.out.println(String.format("[OudiaBridge] 車庫出庫スナップ成功: Train ID = %d (Depot ID = %d) -> ダイヤ ID = %d (現在時刻: %02d:%02d:%02d / 時刻差: %d秒)",
+                Oudiabridge.logToChat(String.format("車庫出庫スナップ成功: Train ID = %d (Depot ID = %d) -> ダイヤ ID = %d (現在時刻: %02d:%02d:%02d / 時刻差: %d秒)",
                         trainId, currentDepotId, bestMatchId,
                         currentSec / 3600, (currentSec % 3600) / 60, currentSec % 60,
                         minTimeDiff));
             } else {
                 matchedTrainConfigId = null;
-                System.out.println(String.format("[OudiaBridge] 車庫出庫検出: Train ID = %d (適合するOuDiaダイヤが見つかりませんでした。現在時刻: %02d:%02d:%02d)",
+                Oudiabridge.logToChat(String.format("車庫出庫検出: Train ID = %d (適合するOuDiaダイヤが見つかりませんでした。現在時刻: %02d:%02d:%02d)",
                         trainId, currentSec / 3600, (currentSec % 3600) / 60, currentSec % 60));
             }
         } else if (!isOnRoute && lastIsOnRoute) {
             lastIsOnRoute = false;
             matchedTrainConfigId = null;
-            turnaroundStopIndexOffset = 0; // 運用終了時にもリセット
-            fixedCurrentDwellTicks = -1;
+            turnaroundStopIndexOffset = 0;
+            lockedStationStopIndex = -1;
         }
 
         if (matchedTrainConfigId != null) {
             OudiaWorldSyncState.TrainRuntimeConfig snappedConfig = activeProject.trainConfigs.get(matchedTrainConfigId);
-            if (snappedConfig != null) return snappedConfig;
+            if (snappedConfig != null) {
+                return snappedConfig;
+            }
         }
 
-        return activeProject.trainConfigs.get(trainId);
+        return null;
     }
 
     private void tryResnapForTurnaround(long trainId, int currentStopIndex) {
@@ -256,10 +332,24 @@ public abstract class TrainMixin {
         if (activeProject == null || matchedTrainConfigId == null) return;
 
         OudiaWorldSyncState.TrainRuntimeConfig currentCfg = activeProject.trainConfigs.get(matchedTrainConfigId);
-        if (currentCfg == null || currentCfg.stopSchedules.isEmpty()) return;
+        if (currentCfg == null || currentCfg.stopSchedules == null || currentCfg.stopSchedules.isEmpty()) return;
 
-        int lastIndex = currentCfg.stopSchedules.size() - 1;
-        if (currentStopIndex != lastIndex) return;
+        // 該当運用における「実際の最終停車駅」のインデックスを取得
+        int actualLastIndex = -1;
+        for (int i = currentCfg.stopSchedules.size() - 1; i >= 0; i--) {
+            OudiaWorldSyncState.StopSchedule stop = currentCfg.stopSchedules.get(i);
+            if (stop != null) {
+                boolean hasArr = stop.arrivalTime != null && !stop.arrivalTime.trim().isEmpty();
+                boolean hasDep = stop.departureTime != null && !stop.departureTime.trim().isEmpty();
+                if (hasArr || hasDep) {
+                    actualLastIndex = i;
+                    break;
+                }
+            }
+        }
+
+        // 現在の停車駅インデックスが実際の終着駅インデックスと一致しない場合は折り返し処理を行わない
+        if (actualLastIndex == -1 || currentStopIndex != actualLastIndex) return;
 
         OudiaWorldSyncState.StopSchedule lastStop = getActualLastStop(currentCfg);
         if (lastStop == null) return;
@@ -267,11 +357,8 @@ public abstract class TrainMixin {
         String rawTerminusName = lastStop.stationName;
         String cleanTerminusName = cleanStationName(rawTerminusName);
 
-        String terminusTimeStr = !lastStop.arrivalTime.isEmpty() ? lastStop.arrivalTime : lastStop.departureTime;
+        String terminusTimeStr = (lastStop.arrivalTime != null && !lastStop.arrivalTime.isEmpty()) ? lastStop.arrivalTime : lastStop.departureTime;
         int terminusSec = parseOudiaTimeToSeconds(terminusTimeStr);
-
-        System.out.println(String.format("[OudiaBridge DEBUG] 終着駅到達判定: Train ID = %d, 現在のダイヤ ID = %d, 終着駅 = '%s', 終着時刻 = '%s' (%d秒)",
-                trainId, matchedTrainConfigId, cleanTerminusName, terminusTimeStr, terminusSec));
 
         if (terminusSec < 0) {
             return;
@@ -279,7 +366,6 @@ public abstract class TrainMixin {
 
         long bestMatchId = -1L;
         int minTimeDiff = Integer.MAX_VALUE;
-
         String newLastStop = "";
 
         for (Map.Entry<Long, OudiaWorldSyncState.TrainRuntimeConfig> entry : activeProject.trainConfigs.entrySet()) {
@@ -292,7 +378,7 @@ public abstract class TrainMixin {
             if (firstStop == null) continue;
 
             String cleanCandidateFirstName = cleanStationName(firstStop.stationName);
-            String candidateDepStr = !firstStop.departureTime.isEmpty() ? firstStop.departureTime : firstStop.arrivalTime;
+            String candidateDepStr = (firstStop.departureTime != null && !firstStop.departureTime.isEmpty()) ? firstStop.departureTime : firstStop.arrivalTime;
             int candidateDepSec = parseOudiaTimeToSeconds(candidateDepStr);
 
             boolean nameMatch = cleanCandidateFirstName.equalsIgnoreCase(cleanTerminusName);
@@ -311,73 +397,55 @@ public abstract class TrainMixin {
                 if (diff < minTimeDiff) {
                     minTimeDiff = diff;
                     bestMatchId = candidateId;
-                    newLastStop = cleanStationName(lastStop2.stationName);
+                    newLastStop = lastStop2 != null ? cleanStationName(lastStop2.stationName) : "";
                 }
             }
         }
 
         if (bestMatchId != -1L) {
             matchedTrainConfigId = bestMatchId;
-
-            // パス頂点のインデックスではなく、MTR側の「駅(stopIndex)」をそのままオフセット基準とする
             turnaroundStopIndexOffset = getMtrRawStopIndex();
-
             lastLoggedStopIndex = -1;
-            fixedCurrentDwellTicks = -1;
+            lockedStationStopIndex = -1;
             this.elapsedDwellTicks = 0.0F;
-            System.out.println(String.format("[OudiaBridge] 折り返し再スナップ成功: Train ID = %d, 終着駅 = '%s' -> 新ダイヤ ID = %d (時間差: %d秒, StopIndex Offset = %d), 新ダイヤ終着駅 = '%s'",
+            Oudiabridge.logToChat(String.format("折り返し再スナップ成功: Train ID = %d, 終着駅 = '%s' -> 新ダイヤ ID = %d (時間差: %d秒, StopIndex Offset = %d), 新ダイヤ終着駅 = '%s'",
                     trainId, cleanTerminusName, bestMatchId, minTimeDiff, turnaroundStopIndexOffset, newLastStop));
-        } else {
-            System.out.println(String.format("[OudiaBridge] 折り返し再スナップ失敗: Train ID = %d, 終着駅 = '%s' (条件に一致する折り返し用ダイヤが見つかりませんでした)",
-                    trainId, cleanTerminusName));
         }
     }
 
     /**
-     * OuDiaダイヤに基づいてドアの開閉目標（doorTarget）を判定する。
-     *
-     * true  = ドアを開ける（または開き続ける）
-     * false = ドアを閉める（または閉め続ける）
+     * ダイヤに従ってドアを開けるべきか判定する
      */
     private boolean shouldDoorsBeOpenByDiagram(OudiaWorldSyncState.TrainRuntimeConfig config, int stationStopIndex) {
-        if (config == null) {
-            return this.doorTarget;
+        if (config == null) return this.doorTarget;
+
+        int minDwellTicks = Math.max(Train.DOOR_MOVE_TIME + 40, config.minimumDwellTicks);
+        int doorCloseLeadingTicks = Train.DOOR_MOVE_TIME + 10;
+
+        // 1. 最小停車時間を満たすまでは、発車時刻に関わらず必ずドアを開け続ける
+        if (this.elapsedDwellTicks < (minDwellTicks - doorCloseLeadingTicks)) {
+            return true;
         }
 
         OudiaWorldSyncState.StopSchedule stop = config.getStopSchedule(stationStopIndex);
-        if (stop == null) {
-            return this.doorTarget;
-        }
-
-        // 完全停車後1秒間（20Tick）経過するまではドアを開けない（到着直後の時差制御）
-        if (this.elapsedDwellTicks < 20.0F) {
-            return false;
-        }
-
-        String depTimeStr = (stop.departureTime != null && !stop.departureTime.trim().isEmpty())
-                ? stop.departureTime
-                : config.firstDepartureTime;
-
+        String depTimeStr = getEffectiveDepartureTime(config, stop, stationStopIndex);
         int departureSec = parseOudiaTimeToSeconds(depTimeStr);
+
+        // 2. 発車時刻が未定義の場合は、最小停車時間までドアを開ける
         if (departureSec < 0) {
-            return true;
+            return this.elapsedDwellTicks < minDwellTicks;
         }
 
         int currentSec = OudiaWorldSyncState.getCurrentRealTimeSeconds();
         int remainingSec = departureSec - currentSec;
 
-        if (remainingSec < -43200) {
-            remainingSec += 86400;
-        } else if (remainingSec > 43200) {
-            remainingSec -= 86400;
-        }
+        if (remainingSec < -43200) remainingSec += 86400;
+        else if (remainingSec > 43200) remainingSec -= 86400;
 
-        // ドア動作に必要な時間（ドア移動64Tick + ディレイ20Tick = 84Tick ≒ 4.2秒）
-        int closeStartTicks = Train.DOOR_MOVE_TIME + 20;
         int remainingTicks = remainingSec * 20;
 
-        // 発車予定時刻までの残り時間が閉扉開始タイマー以下になったら閉扉指示を発出
-        return remainingTicks > closeStartTicks;
+        // 3. 発車時刻直前（ドア閉鎖所要時間）までドアを開け続ける
+        return remainingTicks > doorCloseLeadingTicks;
     }
 
     @Redirect(
@@ -395,7 +463,7 @@ public abstract class TrainMixin {
             int stationStopIndex = getCurrentStationStopIndex();
             return shouldDoorsBeOpenByDiagram(config, stationStopIndex);
         }
-        return this.doorTarget;
+        return openDoors();
     }
 
     @Redirect(
@@ -413,7 +481,7 @@ public abstract class TrainMixin {
             int stationStopIndex = getCurrentStationStopIndex();
             return shouldDoorsBeOpenByDiagram(config, stationStopIndex);
         }
-        return this.doorTarget;
+        return openDoors();
     }
 
     @Inject(method = "getRailSpeed", at = @At("RETURN"), cancellable = true)
@@ -424,54 +492,63 @@ public abstract class TrainMixin {
         }
 
         long trainId = getTrainIdSafe();
+
         OudiaWorldSyncState.TrainRuntimeConfig config = resolveOrSnapTrainConfig(trainId);
+
         if (config == null) {
             return;
         }
+
 
         double userMultiplier = Math.max(0.1D, config.speedMultiplier <= 0 ? 1.0D : config.speedMultiplier);
         int stationStopIndex = getCurrentStationStopIndex();
 
         OudiaWorldSyncState.StopSchedule currentSchedule = config.getStopSchedule(stationStopIndex);
-        String targetArrStr = (currentSchedule != null && !currentSchedule.arrivalTime.isEmpty())
-                ? currentSchedule.arrivalTime
-                : (currentSchedule != null ? currentSchedule.departureTime : config.firstArrivalTime);
-
-        int currentSec = OudiaWorldSyncState.getCurrentRealTimeSeconds();
-        int targetArrSec = parseOudiaTimeToSeconds(targetArrStr);
-
-        float calculatedSpeed = baseRailSpeed;
-
-        if (targetArrSec > 0 && this.path != null && index >= 0 && index < this.path.size()) {
-            double remainingDistance = 0.0D;
-            int targetStopIndex = this.path.get(index).stopIndex;
-            for (int i = index; i < this.path.size(); i++) {
-                PathData p = this.path.get(i);
-                if (p != null) {
-                    if (p.stopIndex != targetStopIndex) {
-                        break;
-                    }
-                    if (p.rail != null) {
-                        remainingDistance += p.rail.getLength();
-                    }
-                }
+        String targetArrStr = null;
+        if (currentSchedule != null) {
+            if (currentSchedule.arrivalTime != null && !currentSchedule.arrivalTime.trim().isEmpty()) {
+                targetArrStr = currentSchedule.arrivalTime.trim();
+            } else if (currentSchedule.departureTime != null && !currentSchedule.departureTime.trim().isEmpty()) {
+                targetArrStr = currentSchedule.departureTime.trim();
             }
+        }
+        if (targetArrStr == null && stationStopIndex == 0) {
+            targetArrStr = config.firstArrivalTime;
+        }
+
+        int targetArrSec = parseOudiaTimeToSeconds(targetArrStr);
+        int currentSec = OudiaWorldSyncState.getCurrentRealTimeSeconds();
+
+        boolean calculateThisTick = this.isFirstRailSpeedCall;
+        this.isFirstRailSpeedCall = false;
+
+        if (calculateThisTick && targetArrSec > 0 && this.path != null && index >= 0 && index < this.path.size()) {
+            double remainingDistance = this.distances.get(this.nextStoppingIndex) - this.railProgress;
 
             int timeRemainingSec = targetArrSec - currentSec;
             if (timeRemainingSec < -43200) timeRemainingSec += 86400;
             if (timeRemainingSec > 43200) timeRemainingSec -= 86400;
 
-            if (timeRemainingSec > 0 && remainingDistance > 0) {
+            // 定時到着のための目標速度計算（5秒以上余裕がある場合）
+            if (timeRemainingSec > 5 && remainingDistance > 0) {
                 double requiredSpeedPerSecond = remainingDistance / timeRemainingSec;
-                float rawCalculatedSpeed = (float) (requiredSpeedPerSecond / 20.0D);
+                float targetSpeedPerTick = (float) (requiredSpeedPerSecond / 20.0D);
 
-                float minAllowedSpeed = Math.max(0.1F, baseRailSpeed * 0.3F);
-                calculatedSpeed = Math.max(rawCalculatedSpeed, minAllowedSpeed);
-            } else if (timeRemainingSec <= 0) {
-                calculatedSpeed = baseRailSpeed;
+                // 線路の最高速度と必要速度の小さい方を採用して過度な加速を防ぐ
+                this.currentTickCalculatedSpeed = targetSpeedPerTick;
+            } else {
+                // 直前または遅延時は線路の通常最高速度を維持
+                this.currentTickCalculatedSpeed = baseRailSpeed;
+            }
+
+            if (Math.abs(this.currentTickCalculatedSpeed - lastLoggedSpeed) > 0.05F) {
+                lastLoggedSpeed = this.currentTickCalculatedSpeed;
+                Oudiabridge.logToChat(String.format("列車速度補正: Train ID = %d, 計算目標速度 = %.3f (残り時間: %d秒, 残り距離: %.1f)",
+                        trainId, this.currentTickCalculatedSpeed, timeRemainingSec, remainingDistance));
             }
         }
 
+        float calculatedSpeed = this.currentTickCalculatedSpeed > 0.0F ? this.currentTickCalculatedSpeed : baseRailSpeed;
         calculatedSpeed = (float) (calculatedSpeed * userMultiplier);
 
         float finalSpeed = Math.min(calculatedSpeed, baseRailSpeed);
@@ -482,31 +559,15 @@ public abstract class TrainMixin {
 
         finalSpeed = Math.max(0.01F, finalSpeed);
 
-        if (Math.abs(finalSpeed - lastLoggedSpeed) > 0.05F) {
-            lastLoggedSpeed = finalSpeed;
-            System.out.println(String.format("[OudiaBridge] 列車速度補正: Train ID = %d, 補正後速度 = %.3f (元レールの最高速度: %.3f)",
-                    trainId, finalSpeed, baseRailSpeed));
-        }
-
-        broadcastTickCounter++;
-        if (!world.isClient() && broadcastTickCounter >= 20) {
-            broadcastTickCounter = 0;
-            List<ServerPlayerEntity> players = world.getServer().getPlayerManager().getPlayerList();
-            PacketByteBuf buf = PacketByteBufs.create();
-            buf.writeLong(trainId);
-            buf.writeFloat(finalSpeed);
-            buf.writeBoolean(this.doorTarget);
-            for (ServerPlayerEntity player : players) {
-                ServerPlayNetworking.send(player, Oudiabridge.TRAIN_STATE_BROADCAST_PACKET_ID, buf);
-            }
-        }
-
+        OudiaServerSpeedManager.setSpeed(trainId, finalSpeed);
         cir.setReturnValue(finalSpeed);
     }
 
     @Inject(method = "simulateTrain", at = @At("HEAD"))
     private void simulateTrainHead(World world, float ticksElapsed, Depot depot, CallbackInfo ci) {
         this.world = world;
+        this.currentDepot = depot;
+        this.isFirstRailSpeedCall = true;
 
         try {
             if (this.path == null || this.path.isEmpty() || nextStoppingIndex >= this.path.size()) {
@@ -515,51 +576,44 @@ public abstract class TrainMixin {
 
             int stationStopIndex = getCurrentStationStopIndex();
 
-            // 走行中（速度>0）の場合は固定停車時間をリセットする
-            if (this.speed > 0) {
-                fixedCurrentDwellTicks = -1;
-            }
-
-            // 速度0で、新しい駅に到着した瞬間を検知
-            if (this.speed <= 0 && lastLoggedStopIndex != stationStopIndex) {
-                lastLoggedStopIndex = stationStopIndex;
-                this.elapsedDwellTicks = 0.0F; // 前駅の累計タイマーを0にリセットして正しく1から開始
-                fixedCurrentDwellTicks = -1;
-
-                tryResnapForTurnaround(getTrainIdSafe(), stationStopIndex);
+            if (this.speed <= 0) {
+                // 停車中にインデックスが切り替わるのを防ぐため固定する
+                if (this.lockedStationStopIndex < 0) {
+                    this.lockedStationStopIndex = Math.max(0, getMtrRawStopIndex() - turnaroundStopIndexOffset);
+                }
 
                 long trainId = getTrainIdSafe();
                 OudiaWorldSyncState.TrainRuntimeConfig config = resolveOrSnapTrainConfig(trainId);
                 if (config != null) {
-                    OudiaWorldSyncState.StopSchedule currentSchedule = config.getStopSchedule(stationStopIndex);
-
-                    String depTimeStr = currentSchedule != null && !currentSchedule.departureTime.isEmpty()
-                            ? currentSchedule.departureTime
-                            : config.firstDepartureTime;
-                    int targetDepSec = parseOudiaTimeToSeconds(depTimeStr);
-                    int currentSec = OudiaWorldSyncState.getCurrentRealTimeSeconds();
-                    String stationName = currentSchedule != null ? currentSchedule.stationName : "未定義";
-
-                    int minDwellTicks = Math.max(Train.DOOR_MOVE_TIME + 20 + 20, config.minimumDwellTicks);
-
-                    if (targetDepSec > 0) {
-                        int remainingSeconds = targetDepSec - currentSec;
-                        if (remainingSeconds < -43200) {
-                            remainingSeconds += 86400;
-                        } else if (remainingSeconds > 43200) {
-                            remainingSeconds -= 86400;
-                        }
-
-                        int calculatedTicks = remainingSeconds * 20;
-                        // ダイヤ遅延時でも最小停車時間を確保し、MTR標準の長時間の停車に落とし込まない
-                        fixedCurrentDwellTicks = Math.max(minDwellTicks, calculatedTicks);
-                    } else {
-                        fixedCurrentDwellTicks = minDwellTicks;
-                    }
-
-                    System.out.printf("[ARRIVE] stop=%d speed=%.2f elapsed=%.1f targetDepSec=%d fixed=%d station=%s%n",
-                            stationStopIndex, speed, elapsedDwellTicks, targetDepSec, fixedCurrentDwellTicks, stationName);
+                    this.elapsedDwellTicks += ticksElapsed;
                 }
+            } else {
+                // 発車後はインデックスのロックを解除
+                this.lockedStationStopIndex = -1;
+            }
+
+            if (this.speed <= 0 && lastLoggedStopIndex != stationStopIndex) {
+                lastLoggedStopIndex = stationStopIndex;
+                this.elapsedDwellTicks = 0.0F;
+
+                long trainId = getTrainIdSafe();
+                OudiaWorldSyncState.TrainRuntimeConfig config = resolveOrSnapTrainConfig(trainId);
+
+                // --- 停車時の駅情報・時刻ログ記録 ---
+                if (config != null) {
+                    OudiaWorldSyncState.StopSchedule stop = config.getStopSchedule(stationStopIndex);
+                    String stationName = stop != null ? stop.stationName : "不明な駅";
+                    String arrTimeStr = (stop != null && stop.arrivalTime != null && !stop.arrivalTime.isEmpty()) ? stop.arrivalTime : "未設定";
+                    String depTimeStr = getEffectiveDepartureTime(config, stop, stationStopIndex);
+                    if (depTimeStr == null || depTimeStr.isEmpty()) depTimeStr = "未設定";
+
+                    int minDwellSec = config.minimumDwellTicks / 20;
+
+                    Oudiabridge.logToChat(String.format("列車が停車しました: [Train ID: %d] 駅インデックス: %d | 駅名: %s | 到着時刻: %s | 発車時刻: %s | 最小停車時間: %d秒",
+                            trainId, stationStopIndex, stationName, arrTimeStr, depTimeStr, minDwellSec));
+                }
+
+                tryResnapForTurnaround(trainId, stationStopIndex);
             }
         } catch (Exception ignored) {
         }
@@ -574,9 +628,6 @@ public abstract class TrainMixin {
                 int stationStopIndex = getCurrentStationStopIndex();
                 boolean target = shouldDoorsBeOpenByDiagram(config, stationStopIndex);
                 this.doorTarget = target;
-                if (!target && this.elapsedDwellTicks < 20.0F) {
-                    this.doorValue = 0.0F;
-                }
             }
         } catch (Exception ignored) {
         }
@@ -584,35 +635,57 @@ public abstract class TrainMixin {
 
     @Inject(method = "getTotalDwellTicks", at = @At("RETURN"), cancellable = true)
     private void oudiaBridge$calculateDwellTicks(CallbackInfoReturnable<Integer> cir) {
-        int mtrDefaultDwell = cir.getReturnValue();
-
         long trainId = getTrainIdSafe();
         OudiaWorldSyncState.TrainRuntimeConfig config = resolveOrSnapTrainConfig(trainId);
+
         if (config == null) {
-            cir.setReturnValue(mtrDefaultDwell);
             return;
         }
 
-        int minDwellTicks = Math.max(Train.DOOR_MOVE_TIME + 20 + 20, config.minimumDwellTicks);
+        int stationStopIndex = getCurrentStationStopIndex();
+        int minDwellTicks = Math.max(Train.DOOR_MOVE_TIME + 40, config.minimumDwellTicks);
 
-        // OuDiaダイヤが紐づいている場合は、固定計算された時間（または遅延時の最小停車時間）を返し、MTR標準値には戻さない
-        if (fixedCurrentDwellTicks > 0) {
-            cir.setReturnValue(Math.max(minDwellTicks, fixedCurrentDwellTicks));
+        // 1. 最小停車時間を満たすまでは無条件で発車待機
+        if (this.elapsedDwellTicks < minDwellTicks) {
+            cir.setReturnValue((int) this.elapsedDwellTicks + 20);
             return;
         }
 
-        cir.setReturnValue(minDwellTicks);
+        // 2. ダイヤの指示でドアを開けるべき、またはドアが完全に閉まりきっていない場合は発車待機
+        boolean target = shouldDoorsBeOpenByDiagram(config, stationStopIndex);
+        if (target || this.doorValue > 0.01F) {
+            cir.setReturnValue((int) this.elapsedDwellTicks + 20);
+            return;
+        }
+
+        // 3. 発車時刻の判定（定刻到達まで発車を完全に止める）
+        OudiaWorldSyncState.StopSchedule stop = config.getStopSchedule(stationStopIndex);
+        String depTimeStr = getEffectiveDepartureTime(config, stop, stationStopIndex);
+        int departureSec = parseOudiaTimeToSeconds(depTimeStr);
+
+        if (departureSec >= 0) {
+            int currentSec = OudiaWorldSyncState.getCurrentRealTimeSeconds();
+            int remainingSec = departureSec - currentSec;
+
+            if (remainingSec < -43200) remainingSec += 86400;
+            else if (remainingSec > 43200) remainingSec -= 86400;
+
+            // 発車時刻（定刻）に到達していない場合は発車許可を出さず待機
+            if (remainingSec > 0) {
+                cir.setReturnValue((int) this.elapsedDwellTicks + 20);
+                return;
+            }
+        }
+
+        // すべての条件を満たした場合（最小停車時間経過 ＋ 定刻到達 ＋ ドア完全閉鎖）に発車を許可
+        cir.setReturnValue((int) this.elapsedDwellTicks);
     }
 
     private long getTrainIdSafe() {
         return ((Train) (Object) this).id;
     }
 
-    private int safeGetStopIndex() {
-        try {
-            return nextStoppingIndex;
-        } catch (Exception e) {
-            return 0;
-        }
+    private Train getTrain() {
+        return ((Train) (Object) this);
     }
 }

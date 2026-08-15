@@ -6,7 +6,7 @@ import java.util.*;
 public class OudiaParser {
 
     public static ParseResult parseOud2(File file) throws IOException {
-        List<StationData> stations = new ArrayList<>();
+        List<RawStation> rawStations = new ArrayList<>();
         List<TrainData> trains = new ArrayList<>();
         String routeName = "";
 
@@ -27,7 +27,7 @@ public class OudiaParser {
                     currentSection = "ROSEN";
                 } else if (line.equals("Eki.")) {
                     currentSection = "EKI";
-                    stations.add(new StationData());
+                    rawStations.add(new RawStation());
                 } else if (line.equals("Kudari.")) {
                     currentDirection = "Kudari";
                 } else if (line.equals("Nobori.")) {
@@ -55,10 +55,16 @@ public class OudiaParser {
                         break;
 
                     case "EKI":
-                        if (line.startsWith("Ekimei=")) {
-                            int lastIndex = stations.size() - 1;
-                            if (lastIndex >= 0) {
-                                stations.get(lastIndex).name = line.substring("Ekimei=".length());
+                        int lastIndex = rawStations.size() - 1;
+                        if (lastIndex >= 0) {
+                            RawStation currentStation = rawStations.get(lastIndex);
+                            if (line.startsWith("Ekimei=")) {
+                                currentStation.name = line.substring("Ekimei=".length());
+                            } else if (line.startsWith("BrunchCoreEkiIndex=")) {
+                                try {
+                                    currentStation.branchCoreIndex = Integer.parseInt(line.substring("BrunchCoreEkiIndex=".length()));
+                                    currentStation.isBranch = true;
+                                } catch (NumberFormatException ignored) {}
                             }
                         }
                         break;
@@ -71,30 +77,57 @@ public class OudiaParser {
                         } else if (line.startsWith("Syubetsu=")) {
                             currentTrain.typeIndex = Integer.parseInt(line.substring("Syubetsu=".length()));
                         } else if (line.startsWith("EkiJikoku=")) {
-                            parseTimetable(line.substring("EkiJikoku=".length()), currentTrain, stations.size());
+                            parseTimetable(line.substring("EkiJikoku=".length()), currentTrain, rawStations);
                         }
                         break;
                 }
             }
         }
 
-        return new ParseResult(routeName, stations, trains);
+        // 分岐駅（派生駅）を排除した浄化済みの駅リストを構築
+        List<StationData> cleanStations = new ArrayList<>();
+        // rawIndex -> cleanIndex のマッピング
+        Map<Integer, Integer> indexMap = new HashMap<>();
+
+        for (int i = 0; i < rawStations.size(); i++) {
+            RawStation rs = rawStations.get(i);
+            if (rs.isBranch) {
+                // 派生駅の場合、紐づく基幹駅の cleanIndex にマッピング
+                int coreCleanIndex = indexMap.getOrDefault(rs.branchCoreIndex, rs.branchCoreIndex);
+                indexMap.put(i, coreCleanIndex);
+            } else {
+                // 独自の駅として残す
+                int newIndex = cleanStations.size();
+                StationData sd = new StationData();
+                sd.name = rs.name;
+                cleanStations.add(sd);
+                indexMap.put(i, newIndex);
+            }
+        }
+
+        // 各列車のストップ情報にある stationIndex を正規化された cleanIndex に書き換える
+        for (TrainData train : trains) {
+            for (StopTime stop : train.stops) {
+                if (indexMap.containsKey(stop.stationIndex)) {
+                    stop.stationIndex = indexMap.get(stop.stationIndex);
+                }
+            }
+        }
+
+        return new ParseResult(routeName, cleanStations, trains);
     }
 
-    /**
-     * EkiJikoku文字列の解析
-     * 上り（Nobori）の場合はOuDiaの仕様上、路線駅定義（0〜N）の順で文字列が記録されるが、
-     * 実際の運行順序は（N〜0）となるため、駅インデックスを反転して対応付けます。
-     */
-    private static void parseTimetable(String rawData, TrainData train, int stationCount) {
+    private static void parseTimetable(String rawData, TrainData train, List<RawStation> rawStations) {
         String[] stationEntries = rawData.split(",", -1);
         boolean isNobori = "Nobori".equalsIgnoreCase(train.direction);
+        int stationCount = rawStations.size();
 
         for (int i = 0; i < stationEntries.length; i++) {
             String entry = stationEntries[i].trim();
             StopTime stopTime = new StopTime();
-            // 上りの場合は実際の進行順（N-1-i）に駅インデックスを対応付け
-            stopTime.stationIndex = isNobori ? (stationCount - 1 - i) : i;
+
+            int rawIndex = isNobori ? (stationCount - 1 - i) : i;
+            stopTime.stationIndex = rawIndex;
 
             if (entry.isEmpty()) {
                 stopTime.stopType = StopType.NONE;
@@ -130,7 +163,14 @@ public class OudiaParser {
         }
     }
 
-    // --- データ構造クラス ---
+    // --- 内部用データ構造 ---
+    private static class RawStation {
+        public String name = "";
+        public boolean isBranch = false;
+        public int branchCoreIndex = -1;
+    }
+
+    // --- 公開データ構造クラス ---
 
     public enum StopType {
         STOP, // 停車

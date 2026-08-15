@@ -1,23 +1,33 @@
 package com.oudiabridge;
 
+import com.mojang.brigadier.CommandDispatcher;
 import com.oudiabridge.sync.OudiaSavedState;
+import com.oudiabridge.sync.OudiaServerSpeedManager;
 import com.oudiabridge.sync.OudiaWorldSyncState;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.NbtList;
 import net.minecraft.network.PacketByteBuf;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class Oudiabridge implements ModInitializer {
@@ -27,9 +37,16 @@ public class Oudiabridge implements ModInitializer {
     public static final Identifier DELETE_PROJECT_PACKET_ID = new Identifier("oudiabridge", "delete_proj");
     public static final Identifier REQUEST_DIA_LIST_PACKET_ID = new Identifier("oudiabridge", "req_dia_list");
     public static final Identifier RESPONSE_DIA_LIST_PACKET_ID = new Identifier("oudiabridge", "res_dia_list");
+    public static final Identifier RESPONSE_DIA_LIST_2_PACKET_ID = new Identifier("oudiabridge", "res_dia_list_2");
     public static final Identifier TRAIN_STATE_BROADCAST_PACKET_ID = new Identifier("oudiabridge", "bc_railspeed");
 
     private static final Map<UUID, ChunkBuffer> INCOMPLETE_TRANSFERS = new ConcurrentHashMap<>();
+
+    // ログ受信対象プレイヤーのリスト
+    private static final Set<UUID> LOG_LISTENERS = Collections.synchronizedSet(new HashSet<>());
+    private static MinecraftServer serverInstance;
+
+    private static Long yoyakuSend_DIA_LIST_2;
 
     private static class ChunkBuffer {
         final byte[][] chunks;
@@ -66,20 +83,51 @@ public class Oudiabridge implements ModInitializer {
         }
     }
 
+    /**
+     * ログメッセージをチャット画面およびコンソールへ送信する
+     */
+    public static void logToChat(String message) {
+        System.out.println(message); // 標準出力にも出力
+
+        if (serverInstance == null) return;
+
+        Text text = Text.literal("[OudiaBridge] " + message).formatted(Formatting.AQUA);
+
+        synchronized (LOG_LISTENERS) {
+            for (UUID uuid : LOG_LISTENERS) {
+                ServerPlayerEntity player = serverInstance.getPlayerManager().getPlayer(uuid);
+                if (player != null) {
+                    player.sendMessage(text, false);
+                }
+            }
+        }
+    }
+
     @Override
     public void onInitialize() {
-        // サーバー起動完了時: ワールドデータ (.dat) から実行時メモリへ復元
+        System.out.println("Starting MTR-OuDiaSecondV2-Bridge [Main]");
+        OudiaServerSpeedManager.register();
+
+        // コマンド登録 (/oudiabridge log)
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+            registerCommands(dispatcher);
+        });
+
+        // サーバー起動完了時
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            serverInstance = server;
             ServerWorld overworld = server.getOverworld();
             if (overworld != null) {
                 OudiaSavedState savedState = OudiaSavedState.get(overworld);
                 if (savedState != null) {
                     savedState.applyToRuntime();
+                    // 保存状態復元時にも全クライアントへ配信
+                    OudiaServerSpeedManager.broadcastSyncData(server);
                 }
             }
         });
 
-        // サーバー停止前: 実行時メモリの最新状態を保存データへ複製
+        // サーバー停止前
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             ServerWorld overworld = server.getOverworld();
             if (overworld != null) {
@@ -88,6 +136,7 @@ public class Oudiabridge implements ModInitializer {
                     savedState.copyFromRuntime();
                 }
             }
+            serverInstance = null;
         });
 
         // MTRダイヤプロジェクトの登録・更新ハンドラ
@@ -187,6 +236,8 @@ public class Oudiabridge implements ModInitializer {
                     }
 
                     sendServerStateToClient(player);
+                    // 全クライアントへTrainRuntimeConfigの詳細情報を一括同期
+                    OudiaServerSpeedManager.broadcastSyncData(server);
                 });
             }
         });
@@ -203,6 +254,7 @@ public class Oudiabridge implements ModInitializer {
                 }
 
                 sendServerStateToClient(player);
+                OudiaServerSpeedManager.broadcastSyncData(server);
             });
         });
 
@@ -220,6 +272,7 @@ public class Oudiabridge implements ModInitializer {
                     }
                 }
                 sendServerStateToClient(player);
+                OudiaServerSpeedManager.broadcastSyncData(server);
             });
         });
 
@@ -236,6 +289,7 @@ public class Oudiabridge implements ModInitializer {
                 }
 
                 sendServerStateToClient(player);
+                OudiaServerSpeedManager.broadcastSyncData(server);
             });
         });
 
@@ -243,9 +297,43 @@ public class Oudiabridge implements ModInitializer {
         ServerPlayNetworking.registerGlobalReceiver(REQUEST_DIA_LIST_PACKET_ID, (server, player, handler, buf, responseSender) -> {
             server.execute(() -> sendServerStateToClient(player));
         });
+
+        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+            yoyakuSend_DIA_LIST_2 = System.currentTimeMillis() + 1000;
+        });
+
+        ServerTickEvents.END_SERVER_TICK.register((server) -> {
+            if (!Objects.isNull(yoyakuSend_DIA_LIST_2)) {
+                if (System.currentTimeMillis() > yoyakuSend_DIA_LIST_2) {
+                    OudiaServerSpeedManager.broadcastSyncData(server);
+                    yoyakuSend_DIA_LIST_2 = null;
+                }
+            }
+        });
     }
 
-    private void sendServerStateToClient(net.minecraft.server.network.ServerPlayerEntity player) {
+    private void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher) {
+        dispatcher.register(CommandManager.literal("oudiabridge")
+                .then(CommandManager.literal("log")
+                        .executes(context -> {
+                            ServerCommandSource source = context.getSource();
+                            if (source.getEntity() instanceof ServerPlayerEntity player) {
+                                UUID uuid = player.getUuid();
+                                if (LOG_LISTENERS.contains(uuid)) {
+                                    LOG_LISTENERS.remove(uuid);
+                                    player.sendMessage(Text.literal("[OudiaBridge] 運行ログの受信をオフにしました。").formatted(Formatting.YELLOW), false);
+                                } else {
+                                    LOG_LISTENERS.add(uuid);
+                                    player.sendMessage(Text.literal("[OudiaBridge] 運行ログの受信をオンにしました。").formatted(Formatting.GREEN), false);
+                                }
+                            }
+                            return 1;
+                        })
+                )
+        );
+    }
+
+    private void sendServerStateToClient(ServerPlayerEntity player) {
         OudiaWorldSyncState runtime = OudiaWorldSyncState.getInstance();
         NbtCompound compound = new NbtCompound();
         compound.putString("activeProjectId", runtime.getActiveProjectId());

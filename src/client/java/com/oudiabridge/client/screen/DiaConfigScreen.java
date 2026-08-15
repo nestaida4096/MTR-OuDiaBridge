@@ -26,15 +26,27 @@ import java.util.function.Consumer;
 
 public class DiaConfigScreen extends Screen {
     private final DashboardScreen parent;
-    private final OudiaParser.ParseResult data;
+    private OudiaParser.ParseResult data;
 
     private static final int MAX_CHUNK_SIZE = 24000;
 
-    // タブ状態 (0: 管理ダッシュボード, 1: 駅マッピング, 2: 列車設定)
+    // タブ状態 (0: 管理ダッシュボード/プロジェクト一覧, 1: 駅マッピング, 2: 列車設定)
     private int activeTab = 0;
 
-    // GUI描画位置
+    // GUI描画位置・サイズ
     private int x, y, width, height;
+
+    // カラーパレット定数
+    private static final int COLOR_BG_OUTER = 0xFA0B101D;
+    private static final int COLOR_BG_INNER = 0xEE111726;
+    private static final int COLOR_CARD_BG = 0xFF182032;
+    private static final int COLOR_BORDER = 0xFF2B3854;
+    private static final int COLOR_ACCENT_BLUE = 0xFF4F46E5;
+    private static final int COLOR_ACTIVE_TAB = 0xFF3B82F6;
+    private static final int COLOR_INACTIVE_TAB = 0xFF1E293B;
+    private static final int COLOR_TEXT_MAIN = 0xFFE2E8F0;
+    private static final int COLOR_TEXT_MUTED = 0xFF94A3B8;
+    private static final int COLOR_TEXT_DIM = 0xFF64748B;
 
     // サーバー上のプロジェクト情報キャッシュ
     private static String serverActiveProjectId = "";
@@ -51,8 +63,6 @@ public class DiaConfigScreen extends Screen {
     private final List<StationDropdown> stationDropdowns = new ArrayList<>();
     private boolean isStationDropdownsInitialized = false;
 
-    private CustomDropdownWidget summaryStationDropdown;
-
     // スクロールオフセット
     private int dashboardScrollOffset = 0;
     private int stationScrollOffset = 0;
@@ -67,8 +77,8 @@ public class DiaConfigScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        this.width = 410;
-        this.height = 245;
+        this.width = 460;
+        this.height = 265;
         this.x = (this.client != null ? this.client.getWindow().getScaledWidth() : 0) / 2 - this.width / 2;
         this.y = (this.client != null ? this.client.getWindow().getScaledHeight() : 0) / 2 - this.height / 2;
 
@@ -99,12 +109,23 @@ public class DiaConfigScreen extends Screen {
                         NbtList pList = nbt.getList("projects", 10);
                         for (int i = 0; i < pList.size(); i++) {
                             NbtCompound pComp = pList.getCompound(i);
-                            serverProjects.add(new ProjectSummary(
+                            ProjectSummary summary = new ProjectSummary(
                                     pComp.getString("id"),
                                     pComp.getString("name"),
                                     pComp.getInt("trainCount"),
-                                    pComp.getInt("stationCount")
-                            ));
+                                    pComp.getInt("stationCount"),
+                                    pComp
+                            );
+                            serverProjects.add(summary);
+
+                            // アクティブプロジェクトがあり、現在編集データが未セットの場合はロードする
+                            /*
+                            if (summary.id.equals(serverActiveProjectId) && data == null) {
+                                data = summary.toParseResult();
+                                setupStationDropdownsData();
+                                isStationDropdownsInitialized = true;
+                            }
+                             */
                         }
                     }
                 }
@@ -121,8 +142,10 @@ public class DiaConfigScreen extends Screen {
 
     private void setupStationDropdownsData() {
         stationDropdowns.clear();
+        if (data == null) return;
+
         List<NamedOption> mtrOptions = new ArrayList<>();
-        mtrOptions.add(new NamedOption(-1L, "なし (無効)", 0));
+        mtrOptions.add(new NamedOption(-1L, "[駅] なし (無効)", 0));
 
         for (Station s : ClientData.STATIONS) {
             mtrOptions.add(new NamedOption(s.id, "[駅] " + s.name, 1));
@@ -157,29 +180,31 @@ public class DiaConfigScreen extends Screen {
         this.clearChildren();
         this.allDropdowns.clear();
 
-        int tabWidth = 125;
-        int tabHeight = 20;
+        // ----------------- トップナビゲーション（タブ） -----------------
+        int tabY = this.y + 12;
+        int tabH = 20;
 
-        this.addDrawableChild(new ButtonWidget(this.x + 10, this.y + 10, tabWidth, tabHeight,
-                Text.literal((activeTab == 0 ? "■ " : "") + "プロジェクト一覧"), btn -> {
+        // タブ 0: プロジェクト一覧
+        this.addDrawableChild(new ModernButton(this.x + 190, tabY, 80, tabH, Text.literal("プロジェクト一覧"), btn -> {
             activeTab = 0;
             initUI();
-        }));
+        }, activeTab == 0));
 
         if (data != null) {
-            this.addDrawableChild(new ButtonWidget(this.x + 140, this.y + 10, tabWidth, tabHeight,
-                    Text.literal((activeTab == 1 ? "■ " : "") + "駅マッピング (" + data.stations.size() + ")"), btn -> {
+            // タブ 1: 駅マッピング
+            this.addDrawableChild(new ModernButton(this.x + 275, tabY, 85, tabH, Text.literal("駅マッピング (" + data.stations.size() + ")"), btn -> {
                 activeTab = 1;
                 initUI();
-            }));
+            }, activeTab == 1));
 
-            this.addDrawableChild(new ButtonWidget(this.x + 270, this.y + 10, tabWidth, tabHeight,
-                    Text.literal((activeTab == 2 ? "■ " : "") + "列車設定 (" + data.trains.size() + ")"), btn -> {
+            // タブ 2: 列車設定
+            this.addDrawableChild(new ModernButton(this.x + 365, tabY, 80, tabH, Text.literal("列車設定 (" + data.trains.size() + ")"), btn -> {
                 activeTab = 2;
                 initUI();
-            }));
+            }, activeTab == 2));
         }
 
+        // タブ内容初期化
         if (activeTab == 0) {
             initDashboardTab();
         } else if (activeTab == 1 && data != null) {
@@ -188,18 +213,21 @@ public class DiaConfigScreen extends Screen {
             initTrainsTab();
         }
 
-        this.addDrawableChild(new ButtonWidget(this.x + this.width - 75, this.y + this.height - 25, 65, 20, Text.literal("閉じる"), btn -> {
+        // 閉じるボタン (右下)
+        this.addDrawableChild(new ModernButton(this.x + this.width - 65, this.y + this.height - 24, 55, 18, Text.literal("閉じる"), btn -> {
             if (this.client != null) {
                 this.client.setScreen(parent);
             }
-        }));
+        }, false));
     }
 
     private void initDashboardTab() {
-        // .oud2 インポート画面遷移ボタン
-        this.addDrawableChild(new ButtonWidget(
-                this.x + 20, this.y + 35, 170, 20,
-                Text.literal("📂 新規 .oud2 をインポート"),
+        // カード型ボタン 1: 新規 .oud2 インポート
+        this.addDrawableChild(new CardButtonWidget(
+                this.x + 15, this.y + 45, 210, 52,
+                "新規 .oud2 をインポート",
+                ".oud2 ファイルを選択して、\n新しいプロジェクトとしてインポートします。",
+                "[IMPORT]",
                 btn -> {
                     if (this.client != null) {
                         this.client.setScreen(new OudiaImportScreen(parent));
@@ -207,16 +235,19 @@ public class DiaConfigScreen extends Screen {
                 }
         ));
 
+        // カード型ボタン 2: ダイヤ保存
         if (data != null) {
-            // 反映ボタン
-            this.addDrawableChild(new ButtonWidget(
-                    this.x + 200, this.y + 35, 190, 20,
-                    Text.literal("★ 編集中のダイヤをサーバーへ保存"),
+            this.addDrawableChild(new CardButtonWidget(
+                    this.x + 235, this.y + 45, 210, 52,
+                    "編集中のダイヤをサーバーへ保存",
+                    "現在編集中のダイヤデータを\nサーバーに保存します。",
+                    "[SAVE]",
                     btn -> registerToMtr()
             ));
         }
 
-        int startY = this.y + 80;
+        // リスト部
+        int startY = this.y + 125;
         int rowHeight = 22;
         int maxVisible = 4;
 
@@ -229,39 +260,44 @@ public class DiaConfigScreen extends Screen {
             boolean isActive = proj.id.equals(serverActiveProjectId);
 
             // 作業プロジェクト切り替えボタン
-            this.addDrawableChild(new ButtonWidget(
-                    this.x + 230, rowY, 110, 18,
-                    Text.literal(isActive ? "★ 作業中に設定済" : "作業プロジェクト化"),
-                    btn -> selectActiveProject(proj.id)
+            /*
+            this.addDrawableChild(new ModernButton(
+                    this.x + 290, rowY, 105, 18,
+                    Text.literal(isActive ? "作業中に設定済" : "作業プロジェクト化"),
+                    btn -> selectActiveProject(proj),
+                    isActive
             ));
+             */
 
             // プロジェクト削除ボタン
-            this.addDrawableChild(new ButtonWidget(
-                    this.x + 345, rowY, 45, 18,
+            this.addDrawableChild(new ModernButton(
+                    this.x + 400, rowY, 40, 18,
                     Text.literal("削除"),
-                    btn -> deleteProject(proj.id)
+                    btn -> deleteProject(proj.id),
+                    false
             ));
         }
 
+        // スクロールボタン
         if (totalRows > maxVisible) {
-            this.addDrawableChild(new ButtonWidget(this.x + 392, startY, 15, 18, Text.literal("▲"), btn -> {
+            this.addDrawableChild(new ModernButton(this.x + 425, startY - 20, 20, 16, Text.literal("▲"), btn -> {
                 if (dashboardScrollOffset > 0) {
                     dashboardScrollOffset--;
                     initUI();
                 }
-            }));
-            this.addDrawableChild(new ButtonWidget(this.x + 392, startY + (maxVisible - 1) * rowHeight, 15, 18, Text.literal("▼"), btn -> {
+            }, false));
+            this.addDrawableChild(new ModernButton(this.x + 425, startY + (maxVisible * rowHeight) + 2, 20, 16, Text.literal("▼"), btn -> {
                 if (dashboardScrollOffset < totalRows - maxVisible) {
                     dashboardScrollOffset++;
                     initUI();
                 }
-            }));
+            }, false));
         }
     }
 
     private void initStationsTab() {
-        int startY = this.y + 45;
-        int rowHeight = 24;
+        int startY = this.y + 48;
+        int rowHeight = 26;
         int maxVisible = 6;
 
         int totalRows = stationDropdowns.size();
@@ -270,7 +306,7 @@ public class DiaConfigScreen extends Screen {
             StationDropdown sd = stationDropdowns.get(idx);
             int rowY = startY + (i * rowHeight);
 
-            sd.widget.x = this.x + 170;
+            sd.widget.x = this.x + 235;
             sd.widget.y = rowY;
             sd.widget.setOpen(false);
 
@@ -279,37 +315,38 @@ public class DiaConfigScreen extends Screen {
         }
 
         if (totalRows > maxVisible) {
-            this.addDrawableChild(new ButtonWidget(this.x + 365, startY, 25, 20, Text.literal("▲"), btn -> {
+            this.addDrawableChild(new ModernButton(this.x + 425, startY, 20, 20, Text.literal("▲"), btn -> {
                 if (stationScrollOffset > 0) {
                     stationScrollOffset--;
                     initUI();
                 }
-            }));
-            this.addDrawableChild(new ButtonWidget(this.x + 365, startY + (maxVisible - 1) * rowHeight, 25, 20, Text.literal("▼"), btn -> {
+            }, false));
+            this.addDrawableChild(new ModernButton(this.x + 425, startY + (maxVisible - 1) * rowHeight, 20, 20, Text.literal("▼"), btn -> {
                 if (stationScrollOffset < totalRows - maxVisible) {
                     stationScrollOffset++;
                     initUI();
                 }
-            }));
+            }, false));
         }
     }
 
     private void initTrainsTab() {
-        int startY = this.y + 60;
-        int rowHeight = 24;
+        int startY = this.y + 65;
+        int rowHeight = 28;
         int maxVisible = 5;
 
         for (int i = 0; i < data.trains.size(); i++) {
             if (!trainControlsMap.containsKey(i)) {
                 TrainConfigControls ctrl = new TrainConfigControls();
-                ctrl.speedField = new TextFieldWidget(this.textRenderer, 0, 0, 45, 18, Text.literal(""));
+                ctrl.speedField = new TextFieldWidget(this.textRenderer, 0, 0, 50, 18, Text.literal(""));
                 ctrl.speedField.setText("1.0");
 
-                ctrl.maxSpeedField = new TextFieldWidget(this.textRenderer, 0, 0, 45, 18, Text.literal(""));
+                // 数値のみ初期設定 (単位表記はプレースホルダーとして描画側に移動)
+                ctrl.maxSpeedField = new TextFieldWidget(this.textRenderer, 0, 0, 40, 18, Text.literal(""));
                 ctrl.maxSpeedField.setText("0");
 
                 ctrl.minDwellField = new TextFieldWidget(this.textRenderer, 0, 0, 45, 18, Text.literal(""));
-                ctrl.minDwellField.setText("20");
+                ctrl.minDwellField.setText("600");
 
                 trainControlsMap.put(i, ctrl);
             }
@@ -321,13 +358,13 @@ public class DiaConfigScreen extends Screen {
             TrainConfigControls ctrl = trainControlsMap.get(idx);
             int rowY = startY + (i * rowHeight);
 
-            ctrl.speedField.x = this.x + 130;
+            ctrl.speedField.x = this.x + 150;
             ctrl.speedField.y = rowY;
 
-            ctrl.maxSpeedField.x = this.x + 210;
+            ctrl.maxSpeedField.x = this.x + 225;
             ctrl.maxSpeedField.y = rowY;
 
-            ctrl.minDwellField.x = this.x + 290;
+            ctrl.minDwellField.x = this.x + 310;
             ctrl.minDwellField.y = rowY;
 
             this.addDrawableChild(ctrl.speedField);
@@ -336,18 +373,18 @@ public class DiaConfigScreen extends Screen {
         }
 
         if (totalRows > maxVisible) {
-            this.addDrawableChild(new ButtonWidget(this.x + 360, startY, 25, 20, Text.literal("▲"), btn -> {
+            this.addDrawableChild(new ModernButton(this.x + 425, startY, 20, 20, Text.literal("▲"), btn -> {
                 if (trainScrollOffset > 0) {
                     trainScrollOffset--;
                     initUI();
                 }
-            }));
-            this.addDrawableChild(new ButtonWidget(this.x + 360, startY + (maxVisible - 1) * rowHeight, 25, 20, Text.literal("▼"), btn -> {
+            }, false));
+            this.addDrawableChild(new ModernButton(this.x + 425, startY + (maxVisible - 1) * rowHeight, 20, 20, Text.literal("▼"), btn -> {
                 if (trainScrollOffset < totalRows - maxVisible) {
                     trainScrollOffset++;
                     initUI();
                 }
-            }));
+            }, false));
         }
     }
 
@@ -359,10 +396,17 @@ public class DiaConfigScreen extends Screen {
         }
     }
 
-    private void selectActiveProject(String projId) {
+    private void selectActiveProject(ProjectSummary proj) {
+        serverActiveProjectId = proj.id;
         net.minecraft.network.PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeString(projId);
+        buf.writeString(proj.id);
         ClientPlayNetworking.send(com.oudiabridge.Oudiabridge.SELECT_PROJECT_PACKET_ID, buf);
+
+        // 作業プロジェクト化の際、編集可能にするためにデータ構築およびUIの更新を行う
+        this.data = proj.toParseResult();
+        setupStationDropdownsData();
+        isStationDropdownsInitialized = true;
+        initUI();
     }
 
     private void deleteProject(String projId) {
@@ -401,12 +445,12 @@ public class DiaConfigScreen extends Screen {
 
             double speedMul = 1.0D;
             int maxSpeed = 0;
-            int minDwell = 20;
+            int minDwell = 600;
 
             if (ctrl != null) {
                 try { speedMul = Double.parseDouble(ctrl.speedField.getText()); } catch (NumberFormatException ignored) {}
-                try { maxSpeed = Integer.parseInt(ctrl.maxSpeedField.getText()); } catch (NumberFormatException ignored) {}
-                try { minDwell = Integer.parseInt(ctrl.minDwellField.getText()); } catch (NumberFormatException ignored) {}
+                try { maxSpeed = Integer.parseInt(ctrl.maxSpeedField.getText().trim()); } catch (NumberFormatException ignored) {}
+                try { minDwell = Integer.parseInt(ctrl.minDwellField.getText().trim()); } catch (NumberFormatException ignored) {}
             }
 
             tCompound.putDouble("speedMultiplier", speedMul);
@@ -483,16 +527,23 @@ public class DiaConfigScreen extends Screen {
     public void render(MatrixStack matrices, int mouseX, int mouseY, float delta) {
         this.renderBackground(matrices);
 
-        fill(matrices, this.x, this.y, this.x + this.width, this.y + this.height, 0xEE1E1E2E);
-        fill(matrices, this.x, this.y, this.x + this.width, this.y + 30, 0xEE11111B);
+        // ----------------- メインウィンドウ背景描画 -----------------
+        fill(matrices, this.x, this.y, this.x + this.width, this.y + this.height, COLOR_BG_OUTER);
+        drawOutline(matrices, this.x, this.y, this.width, this.height, COLOR_BORDER);
 
-        fill(matrices, this.x, this.y, this.x + this.width, this.y + 1, 0xFF45475A);
-        fill(matrices, this.x, this.y + this.height - 1, this.x + this.width, this.y + this.height, 0xFF45475A);
+        fill(matrices, this.x + 6, this.y + 6, this.x + this.width - 6, this.y + this.height - 6, COLOR_BG_INNER);
 
+        // ヘッダー部
+        this.textRenderer.draw(matrices, "プロジェクト管理", this.x + 18, this.y + 10, COLOR_TEXT_MAIN);
+        this.textRenderer.draw(matrices, "PROJECT MANAGEMENT", this.x + 18, this.y + 20, COLOR_TEXT_DIM);
+
+        // ----------------- タブ別コンテンツ描画 -----------------
         if (activeTab == 0) {
-            this.textRenderer.draw(matrices, "保存済みプロジェクト一覧", this.x + 20, this.y + 65, 0x89B4FA);
+            // プロジェクト一覧セクションタイトル
+            this.textRenderer.draw(matrices, "保存済みプロジェクト一覧", this.x + 15, this.y + 108, COLOR_TEXT_MAIN);
+            fill(matrices, this.x + 15, this.y + 120, this.x + this.width - 15, this.y + 121, COLOR_BORDER);
 
-            int startY = this.y + 80;
+            int startY = this.y + 128;
             int rowHeight = 22;
             int maxVisible = 4;
 
@@ -502,41 +553,62 @@ public class DiaConfigScreen extends Screen {
                 int rowY = startY + (i * rowHeight);
 
                 boolean isActive = proj.id.equals(serverActiveProjectId);
-                int textColor = isActive ? 0xA6E3A1 : 0xCDD6F4;
-                String displayTitle = (isActive ? "★ " : "") + proj.name + " (" + proj.trainCount + "列車)";
+                int textColor = isActive ? 0xFF818CF8 : COLOR_TEXT_MUTED;
+                String displayTitle = (isActive ? "[選択中] " : "  ") + proj.name + " (" + proj.trainCount + "列車)";
 
                 this.textRenderer.draw(matrices, displayTitle, this.x + 20, rowY + 4, textColor);
             }
         } else if (activeTab == 1 && data != null) {
-            int startY = this.y + 45;
-            int rowHeight = 24;
+            this.textRenderer.draw(matrices, "駅マッピング一覧", this.x + 15, this.y + 35, COLOR_TEXT_MAIN);
+
+            int startY = this.y + 50;
+            int rowHeight = 26;
             int maxVisible = 6;
             for (int i = 0; i < maxVisible && (i + stationScrollOffset) < data.stations.size(); i++) {
                 int idx = i + stationScrollOffset;
                 String name = data.stations.get(idx).name;
-                this.textRenderer.draw(matrices, name, this.x + 25, startY + (i * rowHeight) + 5, 0xCDD6F4);
+
+                this.textRenderer.draw(matrices, name, this.x + 25, startY + (i * rowHeight) + 2, COLOR_TEXT_MAIN);
+                this.textRenderer.draw(matrices, "Station_" + (idx + 1), this.x + 25, startY + (i * rowHeight) + 12, COLOR_TEXT_DIM);
             }
         } else if (activeTab == 2 && data != null) {
-            this.textRenderer.draw(matrices, "列車", this.x + 25, this.y + 42, 0x89B4FA);
-            this.textRenderer.draw(matrices, "速度倍率", this.x + 130, this.y + 42, 0x89B4FA);
-            this.textRenderer.draw(matrices, "最高速度", this.x + 210, this.y + 42, 0x89B4FA);
-            this.textRenderer.draw(matrices, "最小停車", this.x + 290, this.y + 42, 0x89B4FA);
+            int headerY = this.y + 42;
+            this.textRenderer.draw(matrices, "列車", this.x + 25, headerY, COLOR_TEXT_DIM);
+            this.textRenderer.draw(matrices, "速度倍率", this.x + 150, headerY, COLOR_TEXT_DIM);
+            this.textRenderer.draw(matrices, "最高速度", this.x + 225, headerY, COLOR_TEXT_DIM);
+            this.textRenderer.draw(matrices, "最小停車", this.x + 310, headerY, COLOR_TEXT_DIM);
 
-            int startY = this.y + 60;
-            int rowHeight = 24;
+            int startY = this.y + 65;
+            int rowHeight = 28;
             int maxVisible = 5;
             for (int i = 0; i < maxVisible && (i + trainScrollOffset) < data.trains.size(); i++) {
                 int idx = i + trainScrollOffset;
+                TrainConfigControls ctrl = trainControlsMap.get(idx);
+                int rowY = startY + (i * rowHeight);
                 String name = "列車 #" + (idx + 1);
-                this.textRenderer.draw(matrices, name, this.x + 25, startY + (i * rowHeight) + 5, 0xCDD6F4);
+                this.textRenderer.draw(matrices, name, this.x + 25, rowY + 5, COLOR_TEXT_MAIN);
+
+                // 単位ラベルをテキストボックスの横に描画
+                if (ctrl != null) {
+                    this.textRenderer.draw(matrices, "km/h", ctrl.maxSpeedField.x + ctrl.maxSpeedField.getWidth() + 3, rowY + 5, COLOR_TEXT_DIM);
+                    this.textRenderer.draw(matrices, "ticks", ctrl.minDwellField.x + ctrl.minDwellField.getWidth() + 3, rowY + 5, COLOR_TEXT_DIM);
+                }
             }
         }
 
         super.render(matrices, mouseX, mouseY, delta);
 
+        // ドロップダウンのオーバーレイ描画
         for (CustomDropdownWidget dropdown : allDropdowns) {
             dropdown.renderOverlay(matrices, mouseX, mouseY);
         }
+    }
+
+    private void drawOutline(MatrixStack matrices, int x, int y, int width, int height, int color) {
+        fill(matrices, x, y, x + width, y + 1, color);
+        fill(matrices, x, y + height - 1, x + width, y + height, color);
+        fill(matrices, x, y, x + 1, y + height, color);
+        fill(matrices, x + width - 1, y, x + width, y + height, color);
     }
 
     @Override
@@ -544,17 +616,138 @@ public class DiaConfigScreen extends Screen {
         return false;
     }
 
+    // ----------------- カスタムGUIコンポーネントクラス群 -----------------
+
+    private static class ModernButton extends ButtonWidget {
+        private final boolean isActive;
+
+        public ModernButton(int x, int y, int width, int height, Text message, PressAction onPress, boolean isActive) {
+            super(x, y, width, height, message, onPress);
+            this.isActive = isActive;
+        }
+
+        @Override
+        public void renderButton(MatrixStack matrices, int mouseX, int mouseY, float delta) {
+            boolean hovered = this.isHovered();
+            int bg = isActive ? COLOR_ACTIVE_TAB : (hovered ? 0xFF334155 : COLOR_INACTIVE_TAB);
+            int textColor = isActive ? 0xFFFFFFFF : (hovered ? 0xFFF1F5F9 : COLOR_TEXT_MUTED);
+
+            fill(matrices, this.x, this.y, this.x + this.width, this.y + this.height, bg);
+
+            int borderColor = isActive ? COLOR_ACCENT_BLUE : COLOR_BORDER;
+            fill(matrices, this.x, this.y, this.x + this.width, this.y + 1, borderColor);
+            fill(matrices, this.x, this.y + this.height - 1, this.x + this.width, this.y + this.height, borderColor);
+            fill(matrices, this.x, this.y, this.x + 1, this.y + this.height, borderColor);
+            fill(matrices, this.x + this.width - 1, this.y, x + this.width, this.y + this.height, borderColor);
+
+            int textWidth = MinecraftClient.getInstance().textRenderer.getWidth(this.getMessage());
+            int textX = this.x + (this.width - textWidth) / 2;
+            int textY = this.y + (this.height - 8) / 2;
+
+            MinecraftClient.getInstance().textRenderer.draw(matrices, this.getMessage(), textX, textY, textColor);
+        }
+    }
+
+    private static class CardButtonWidget extends ButtonWidget {
+        private final String title;
+        private final String description;
+        private final String tagText;
+
+        public CardButtonWidget(int x, int y, int width, int height, String title, String description, String tagText, PressAction onPress) {
+            super(x, y, width, height, Text.literal(""), onPress);
+            this.title = title;
+            this.description = description;
+            this.tagText = tagText;
+        }
+
+        @Override
+        public void renderButton(MatrixStack matrices, int mouseX, int mouseY, float delta) {
+            boolean hovered = this.isHovered();
+            int bg = hovered ? 0xFF232D42 : COLOR_CARD_BG;
+            int borderColor = hovered ? COLOR_ACTIVE_TAB : COLOR_BORDER;
+
+            fill(matrices, this.x, this.y, this.x + this.width, this.y + this.height, bg);
+
+            fill(matrices, this.x, this.y, this.x + this.width, this.y + 1, borderColor);
+            fill(matrices, this.x, this.y + this.height - 1, this.x + this.width, this.y + this.height, borderColor);
+            fill(matrices, this.x, this.y, this.x + 1, this.y + this.height, borderColor);
+            fill(matrices, this.x + this.width - 1, this.y, this.x + this.width, this.y + this.height, borderColor);
+
+            int textLeft = this.x + 12;
+
+            if (tagText != null && !tagText.isEmpty()) {
+                MinecraftClient.getInstance().textRenderer.draw(matrices, tagText, this.x + 12, this.y + 8, COLOR_ACTIVE_TAB);
+                textLeft = this.x + 12 + MinecraftClient.getInstance().textRenderer.getWidth(tagText) + 6;
+            }
+
+            MinecraftClient.getInstance().textRenderer.draw(matrices, title, textLeft, this.y + 8, COLOR_TEXT_MAIN);
+
+            String[] descLines = description.split("\n");
+            int descY = this.y + 22;
+            for (String line : descLines) {
+                MinecraftClient.getInstance().textRenderer.draw(matrices, line, this.x + 12, descY, COLOR_TEXT_DIM);
+                descY += 10;
+            }
+        }
+    }
+
     private static class ProjectSummary {
         final String id;
         final String name;
         final int trainCount;
         final int stationCount;
+        final NbtCompound fullNbt;
 
-        ProjectSummary(String id, String name, int trainCount, int stationCount) {
+        ProjectSummary(String id, String name, int trainCount, int stationCount, NbtCompound fullNbt) {
             this.id = id;
             this.name = name;
             this.trainCount = trainCount;
             this.stationCount = stationCount;
+            this.fullNbt = fullNbt;
+        }
+
+        OudiaParser.ParseResult toParseResult() {
+            String routeName = this.name;
+            List<OudiaParser.StationData> stations = new ArrayList<>();
+            List<OudiaParser.TrainData> trains = new ArrayList<>();
+
+            if (fullNbt != null && fullNbt.contains("stations")) {
+                NbtCompound stTag = fullNbt.getCompound("stations");
+                for (String key : stTag.getKeys()) {
+                    OudiaParser.StationData sd = new OudiaParser.StationData();
+                    sd.name = key;
+                    stations.add(sd);
+                }
+            }
+
+            if (stations.size() < stationCount) {
+                int needed = stationCount - stations.size();
+                for (int i = 0; i < needed; i++) {
+                    OudiaParser.StationData sd = new OudiaParser.StationData();
+                    sd.name = "駅 " + (stations.size() + 1);
+                    stations.add(sd);
+                }
+            }
+
+            if (fullNbt != null && fullNbt.contains("trains")) {
+                NbtCompound trTag = fullNbt.getCompound("trains");
+                for (String key : trTag.getKeys()) {
+                    OudiaParser.TrainData td = new OudiaParser.TrainData();
+                    td.stops = new ArrayList<>();
+                    trains.add(td);
+                }
+            }
+
+            if (trains.size() < trainCount) {
+                int needed = trainCount - trains.size();
+                for (int i = 0; i < needed; i++) {
+                    OudiaParser.TrainData td = new OudiaParser.TrainData();
+                    td.stops = new ArrayList<>();
+                    trains.add(td);
+                }
+            }
+
+            return new OudiaParser.ParseResult(routeName, stations, trains);
         }
     }
 
@@ -588,19 +781,26 @@ public class DiaConfigScreen extends Screen {
     private static class CustomDropdownWidget extends ButtonWidget {
         private final String labelPrefix;
         private final List<NamedOption> options;
+        private List<NamedOption> filteredOptions;
         private NamedOption selectedOption;
         private final Consumer<NamedOption> onSelect;
         private final DiaConfigScreen parentScreen;
+
         private boolean isOpen = false;
         private int scrollIndex = 0;
         private final int maxVisibleRows = 5;
         private final int itemHeight = 18;
+
+        // 検索・操作用の状態変数
+        private String searchQuery = "";
+        private boolean isSearching = false;
         private boolean isDraggingScrollbar = false;
 
         public CustomDropdownWidget(int x, int y, int width, int height, String labelPrefix, List<NamedOption> options, NamedOption initial, Consumer<NamedOption> onSelect, DiaConfigScreen parentScreen) {
             super(x, y, width, height, Text.literal(labelPrefix + initial.name), btn -> {});
             this.labelPrefix = labelPrefix;
             this.options = options;
+            this.filteredOptions = new ArrayList<>(options);
             this.selectedOption = initial;
             this.onSelect = onSelect;
             this.parentScreen = parentScreen;
@@ -612,7 +812,12 @@ public class DiaConfigScreen extends Screen {
 
         public void setOpen(boolean open) {
             this.isOpen = open;
-            if (!open) isDraggingScrollbar = false;
+            if (!open) {
+                isDraggingScrollbar = false;
+                isSearching = false;
+                searchQuery = "";
+                updateFilter();
+            }
         }
 
         @Override
@@ -620,107 +825,153 @@ public class DiaConfigScreen extends Screen {
             boolean nextState = !this.isOpen;
             if (nextState) {
                 parentScreen.closeOtherDropdowns(this);
+                isSearching = true; // 開いた直後からそのまま文字入力で検索できるようにする
+                searchQuery = "";
+                updateFilter();
             }
             this.isOpen = nextState;
             this.isDraggingScrollbar = false;
         }
 
-        @Override
-        public void renderButton(MatrixStack matrices, int mouseX, int mouseY, float delta) {
-            this.setMessage(Text.literal(labelPrefix + selectedOption.name + (isOpen ? " ▲" : " ▼")));
-            super.renderButton(matrices, mouseX, mouseY, delta);
+        private void updateFilter() {
+            filteredOptions.clear();
+            if (searchQuery.isEmpty()) {
+                filteredOptions.addAll(options);
+            } else {
+                String lowerQuery = searchQuery.toLowerCase();
+                for (NamedOption option : options) {
+                    if (option.name.toLowerCase().contains(lowerQuery)) {
+                        filteredOptions.add(option);
+                    }
+                }
+            }
+            scrollIndex = Math.max(0, Math.min(scrollIndex, Math.max(0, filteredOptions.size() - maxVisibleRows)));
         }
 
-        public void renderOverlay(MatrixStack matrices, int mouseX, int mouseY) {
-            if (!isOpen || !this.visible) return;
+        // キー入力受付用（スクリーン側から呼び出す）
+        public boolean charTyped(char chr, int modifiers) {
+            if (!isOpen) return false;
+            if (chr >= 32 && chr != 127) { // 有効な文字入力
+                searchQuery += chr;
+                updateFilter();
+                return true;
+            }
+            return false;
+        }
 
-            int drawerY = this.y + this.height;
-            int visibleRows = Math.min(options.size(), maxVisibleRows);
-            int drawerH = visibleRows * itemHeight;
-            int scrollbarWidth = 6;
-
-            fill(matrices, this.x, drawerY, this.x + this.width, drawerY + drawerH, 0xFA181825);
-            fill(matrices, this.x - 1, drawerY - 1, this.x + this.width + 1, drawerY, 0xFF45475A);
-            fill(matrices, this.x - 1, drawerY + drawerH, this.x + this.width + 1, drawerY + drawerH + 1, 0xFF45475A);
-
-            int maxScroll = Math.max(0, options.size() - maxVisibleRows);
-            int endIndex = Math.min(options.size(), scrollIndex + visibleRows);
-
-            for (int i = scrollIndex; i < endIndex; i++) {
-                NamedOption option = options.get(i);
-                int itemY = drawerY + ((i - scrollIndex) * itemHeight);
-                boolean hovered = mouseX >= this.x && mouseX <= this.x + this.width - (maxScroll > 0 ? scrollbarWidth : 0) &&
-                        mouseY >= itemY && mouseY < itemY + itemHeight;
-                boolean selected = (option.id == selectedOption.id);
-
-                if (selected) {
-                    fill(matrices, this.x + 1, itemY + 1, this.x + this.width - 1, itemY + itemHeight - 1, 0xFF313244);
-                } else if (hovered) {
-                    fill(matrices, this.x + 1, itemY + 1, this.x + this.width - 1, itemY + itemHeight - 1, 0xFF45475A);
+        // バックスペース等の特殊キー受付用（スクリーン側から呼び出す）
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (!isOpen) return false;
+            if (keyCode == 259) { // Backspace
+                if (!searchQuery.isEmpty()) {
+                    searchQuery = searchQuery.substring(0, searchQuery.length() - 1);
+                    updateFilter();
                 }
-
-                MinecraftClient.getInstance().textRenderer.draw(
-                        matrices,
-                        option.name,
-                        this.x + 5,
-                        itemY + 5,
-                        selected ? 0x89B4FA : 0xCDD6F4
-                );
+                return true;
+            } else if (keyCode == 256) { // Escapeでドロップダウンを閉じる
+                setOpen(false);
+                return true;
+            } else if (keyCode == 264) { // 下矢印キー
+                if (scrollIndex < Math.max(0, filteredOptions.size() - maxVisibleRows)) {
+                    scrollIndex++;
+                }
+                return true;
+            } else if (keyCode == 265) { // 上矢印キー
+                if (scrollIndex > 0) {
+                    scrollIndex--;
+                }
+                return true;
             }
+            return false;
+        }
 
-            if (maxScroll > 0) {
-                int trackX = this.x + this.width - scrollbarWidth;
-                fill(matrices, trackX, drawerY, trackX + scrollbarWidth, drawerY + drawerH, 0xFF11111B);
+        // マウスホイールスクロール対応（スクリーン側から呼び出す）
+        public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
+            if (!isOpen) return false;
+            int visibleRows = Math.min(filteredOptions.size(), maxVisibleRows);
+            int drawerY = this.y + this.height + 2;
+            int drawerH = (visibleRows + 1) * itemHeight; // 検索バー分を含む高さ
 
-                int thumbHeight = Math.max(8, (int) ((float) visibleRows / options.size() * drawerH));
-                int thumbY = drawerY + (int) ((float) scrollIndex / maxScroll * (drawerH - thumbHeight));
-
-                fill(matrices, trackX, thumbY, trackX + scrollbarWidth, thumbY + thumbHeight, 0xFF89B4FA);
+            if (mouseX >= this.x && mouseX <= this.x + this.width && mouseY >= drawerY && mouseY <= drawerY + drawerH) {
+                if (amount > 0 && scrollIndex > 0) {
+                    scrollIndex--;
+                } else if (amount < 0 && scrollIndex < Math.max(0, filteredOptions.size() - maxVisibleRows)) {
+                    scrollIndex++;
+                }
+                return true;
             }
+            return false;
+        }
+
+        // マウスドラッグによるスクロールバー操作対応（スクリーン側から呼び出す）
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            if (!isOpen || !isDraggingScrollbar) return false;
+
+            int visibleRows = Math.min(filteredOptions.size(), maxVisibleRows);
+            int drawerY = this.y + this.height + 2 + itemHeight; // 検索バーの下から
+            int drawerH = visibleRows * itemHeight;
+            int maxScroll = Math.max(0, filteredOptions.size() - maxVisibleRows);
+
+            if (maxScroll > 0 && drawerH > 0) {
+                int thumbHeight = Math.max(8, (int) ((float) visibleRows / filteredOptions.size() * drawerH));
+                float trackClickRatio = (float) (mouseY - drawerY - (thumbHeight / 2.0f)) / (drawerH - thumbHeight);
+                scrollIndex = Math.max(0, Math.min(maxScroll, (int) (trackClickRatio * maxScroll)));
+            }
+            return true;
         }
 
         @Override
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
-            if (isOpen && this.visible) {
-                int drawerY = this.y + this.height;
-                int visibleRows = Math.min(options.size(), maxVisibleRows);
-                int drawerH = visibleRows * itemHeight;
-                int maxScroll = Math.max(0, options.size() - maxVisibleRows);
-
-                if (mouseX >= this.x && mouseX <= this.x + this.width &&
-                        mouseY >= drawerY && mouseY <= drawerY + drawerH) {
-
-                    if (maxScroll > 0 && mouseX >= this.x + this.width - 8) {
-                        isDraggingScrollbar = true;
-                        updateScrollFromMouseY(mouseY, drawerY, drawerH);
-                        return true;
-                    }
-
-                    int clickedIdx = scrollIndex + (int) ((mouseY - drawerY) / itemHeight);
-                    if (clickedIdx >= 0 && clickedIdx < options.size()) {
-                        selectedOption = options.get(clickedIdx);
-                        onSelect.accept(selectedOption);
-                        isOpen = false;
-                        return true;
-                    }
-                } else if (!(mouseX >= this.x && mouseX <= this.x + this.width && mouseY >= this.y && mouseY <= this.y + this.height)) {
-                    isOpen = false;
-                    isDraggingScrollbar = false;
-                }
+            if (!isOpen) {
+                return super.mouseClicked(mouseX, mouseY, button);
             }
-            return super.mouseClicked(mouseX, mouseY, button);
-        }
 
-        @Override
-        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-            if (isOpen && isDraggingScrollbar) {
-                int drawerY = this.y + this.height;
-                int visibleRows = Math.min(options.size(), maxVisibleRows);
-                int drawerH = visibleRows * itemHeight;
-                updateScrollFromMouseY(mouseY, drawerY, drawerH);
+            int drawerY = this.y + this.height + 2;
+            int visibleRows = Math.min(filteredOptions.size(), maxVisibleRows);
+            int searchBarH = itemHeight;
+            int drawerH = searchBarH + (visibleRows * itemHeight);
+            int scrollbarWidth = 6;
+
+            // ドロップダウン領域外をクリックした場合は閉じる
+            if (mouseX < this.x || mouseX > this.x + this.width || mouseY < drawerY || mouseY > drawerY + drawerH) {
+                setOpen(false);
+                return false;
+            }
+
+            // 検索バー部分のクリック
+            if (mouseY >= drawerY && mouseY < drawerY + searchBarH) {
+                isSearching = true;
                 return true;
             }
-            return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+
+            // スクロールバー領域の判定
+            int maxScroll = Math.max(0, filteredOptions.size() - maxVisibleRows);
+            if (maxScroll > 0) {
+                int trackX = this.x + this.width - scrollbarWidth - 1;
+                int listStartY = drawerY + searchBarH;
+                int listH = visibleRows * itemHeight;
+                if (mouseX >= trackX && mouseX <= trackX + scrollbarWidth && mouseY >= listStartY && mouseY < listStartY + listH) {
+                    isDraggingScrollbar = true;
+                    return true;
+                }
+            }
+
+            // リスト項目のクリック判定
+            int listStartY = drawerY + searchBarH;
+            for (int i = scrollIndex; i < Math.min(filteredOptions.size(), scrollIndex + visibleRows); i++) {
+                int itemY = listStartY + ((i - scrollIndex) * itemHeight);
+                if (mouseX >= this.x && mouseX <= this.x + this.width - (maxScroll > 0 ? scrollbarWidth : 0) &&
+                        mouseY >= itemY && mouseY < itemY + itemHeight) {
+                    NamedOption chosen = filteredOptions.get(i);
+                    this.selectedOption = chosen;
+                    this.onSelect.accept(chosen);
+                    this.setMessage(Text.literal(labelPrefix + chosen.name));
+                    setOpen(false);
+                    return true;
+                }
+            }
+
+            return super.mouseClicked(mouseX, mouseY, button);
         }
 
         @Override
@@ -730,34 +981,90 @@ public class DiaConfigScreen extends Screen {
         }
 
         @Override
-        public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
-            if (isOpen && this.visible) {
-                int drawerY = this.y + this.height;
-                int visibleRows = Math.min(options.size(), maxVisibleRows);
-                int drawerH = visibleRows * itemHeight;
+        public void renderButton(MatrixStack matrices, int mouseX, int mouseY, float delta) {
+            boolean hovered = this.isHovered();
+            fill(matrices, this.x, this.y, this.x + this.width, this.y + this.height, hovered ? 0xFF26334D : COLOR_CARD_BG);
 
-                if (mouseX >= this.x && mouseX <= this.x + this.width &&
-                        mouseY >= this.y && mouseY <= drawerY + drawerH) {
-                    int maxScroll = Math.max(0, options.size() - maxVisibleRows);
-                    if (amount < 0 && scrollIndex < maxScroll) {
-                        scrollIndex++;
-                        return true;
-                    } else if (amount > 0 && scrollIndex > 0) {
-                        scrollIndex--;
-                        return true;
-                    }
-                }
-            }
-            return super.mouseScrolled(mouseX, mouseY, amount);
+            int borderColor = isOpen ? COLOR_ACTIVE_TAB : COLOR_BORDER;
+            fill(matrices, this.x, this.y, this.x + this.width, this.y + 1, borderColor);
+            fill(matrices, this.x, this.y + this.height - 1, this.x + this.width, this.y + this.height, borderColor);
+            fill(matrices, this.x, this.y, this.x + 1, this.y + this.height, borderColor);
+            fill(matrices, this.x + this.width - 1, this.y, this.x + this.width, this.y + this.height, borderColor);
+
+            String text = labelPrefix + selectedOption.name;
+            MinecraftClient.getInstance().textRenderer.draw(matrices, text, this.x + 6, this.y + 6, COLOR_TEXT_MAIN);
+
+            String arrow = isOpen ? "▲" : "▼";
+            MinecraftClient.getInstance().textRenderer.draw(matrices, arrow, this.x + this.width - 14, this.y + 6, COLOR_TEXT_DIM);
         }
 
-        private void updateScrollFromMouseY(double mouseY, int drawerY, int drawerH) {
-            int maxScroll = Math.max(0, options.size() - maxVisibleRows);
-            if (maxScroll <= 0) return;
+        public void renderOverlay(MatrixStack matrices, int mouseX, int mouseY) {
+            if (!isOpen || !this.visible) return;
 
-            double relativeY = Math.max(0, Math.min(drawerH, mouseY - drawerY));
-            scrollIndex = (int) Math.round((relativeY / drawerH) * maxScroll);
-            scrollIndex = Math.max(0, Math.min(maxScroll, scrollIndex));
+            int drawerY = this.y + this.height + 2;
+            int visibleRows = Math.min(filteredOptions.size(), maxVisibleRows);
+            int searchBarH = itemHeight;
+            int drawerH = searchBarH + (visibleRows * itemHeight);
+            int scrollbarWidth = 6;
+
+            // 背景描画
+            fill(matrices, this.x, drawerY, this.x + this.width, drawerY + drawerH, 0xFF0F172A);
+
+            // 外枠
+            fill(matrices, this.x, drawerY, this.x + this.width, drawerY + 1, COLOR_ACTIVE_TAB);
+            fill(matrices, this.x, drawerY + drawerH - 1, this.x + this.width, drawerY + drawerH, COLOR_ACTIVE_TAB);
+            fill(matrices, this.x, drawerY, this.x + 1, drawerY + drawerH, COLOR_ACTIVE_TAB);
+            fill(matrices, this.x + this.width - 1, drawerY, this.x + this.width, drawerY + drawerH, COLOR_ACTIVE_TAB);
+
+            // --- 1. 検索バーの描画 ---
+            fill(matrices, this.x + 1, drawerY + 1, this.x + this.width - 1, drawerY + searchBarH, 0xFF1E293B);
+            String displaySearchText = searchQuery.isEmpty() ? "§7検索..." : searchQuery;
+            MinecraftClient.getInstance().textRenderer.draw(
+                    matrices,
+                    displaySearchText,
+                    this.x + 6,
+                    drawerY + 5,
+                    searchQuery.isEmpty() ? 0xFF64748B : COLOR_TEXT_MAIN
+            );
+
+            // --- 2. リスト項目の描画 ---
+            int listStartY = drawerY + searchBarH;
+            int maxScroll = Math.max(0, filteredOptions.size() - maxVisibleRows);
+            int endIndex = Math.min(filteredOptions.size(), scrollIndex + visibleRows);
+
+            for (int i = scrollIndex; i < endIndex; i++) {
+                NamedOption option = filteredOptions.get(i);
+                int itemY = listStartY + ((i - scrollIndex) * itemHeight);
+                boolean hovered = mouseX >= this.x && mouseX <= this.x + this.width - (maxScroll > 0 ? scrollbarWidth : 0) &&
+                        mouseY >= itemY && mouseY < itemY + itemHeight;
+                boolean selected = (option.id == selectedOption.id);
+
+                if (selected) {
+                    fill(matrices, this.x + 2, itemY + 1, this.x + this.width - 2, itemY + itemHeight - 1, 0xFF1E293B);
+                } else if (hovered) {
+                    fill(matrices, this.x + 2, itemY + 1, this.x + this.width - 2, itemY + itemHeight - 1, 0xFF334155);
+                }
+
+                MinecraftClient.getInstance().textRenderer.draw(
+                        matrices,
+                        option.name,
+                        this.x + 6,
+                        itemY + 5,
+                        selected ? COLOR_ACTIVE_TAB : COLOR_TEXT_MAIN
+                );
+            }
+
+            // --- 3. スクロールバーの描画 ---
+            if (maxScroll > 0) {
+                int trackX = this.x + this.width - scrollbarWidth - 1;
+                fill(matrices, trackX, listStartY, trackX + scrollbarWidth, drawerY + drawerH - 1, 0xFF020617);
+
+                int listH = visibleRows * itemHeight;
+                int thumbHeight = Math.max(8, (int) ((float) visibleRows / filteredOptions.size() * listH));
+                int thumbY = listStartY + (int) ((float) scrollIndex / maxScroll * (listH - thumbHeight));
+
+                fill(matrices, trackX, thumbY, trackX + scrollbarWidth, thumbY + thumbHeight, COLOR_ACTIVE_TAB);
+            }
         }
     }
 }

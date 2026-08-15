@@ -4,8 +4,7 @@
   "package": "com.oudiabridge.client.mixin",
   "compatibilityLevel": "JAVA_17",
   "client": [
-    "DashboardScreenMixin",
-    "TrainMixin"
+    "DashboardScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1
