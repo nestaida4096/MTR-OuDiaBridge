@@ -48,6 +48,11 @@ public class Oudiabridge implements ModInitializer {
 
     private static Long yoyakuSend_DIA_LIST_2;
 
+    @Override
+    public void onInitialize() {
+        init();
+    }
+
     private static class ChunkBuffer {
         final byte[][] chunks;
         final int totalChunks;
@@ -103,8 +108,8 @@ public class Oudiabridge implements ModInitializer {
         }
     }
 
-    @Override
-    public void onInitialize() {
+
+    public static void init() {
         System.out.println("Starting MTR-OuDiaSecondV2-Bridge [Main]");
         OudiaServerSpeedManager.register();
 
@@ -312,7 +317,7 @@ public class Oudiabridge implements ModInitializer {
         });
     }
 
-    private void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher) {
+    private static void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher) {
         dispatcher.register(CommandManager.literal("oudiabridge")
                 .then(CommandManager.literal("log")
                         .executes(context -> {
@@ -333,7 +338,7 @@ public class Oudiabridge implements ModInitializer {
         );
     }
 
-    private void sendServerStateToClient(ServerPlayerEntity player) {
+    private static void sendServerStateToClient(ServerPlayerEntity player) {
         OudiaWorldSyncState runtime = OudiaWorldSyncState.getInstance();
         NbtCompound compound = new NbtCompound();
         compound.putString("activeProjectId", runtime.getActiveProjectId());

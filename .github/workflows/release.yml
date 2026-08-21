@@ -1,0 +1,44 @@
+name: Build and Release Fabric Mod (1.19.2)
+
+on:
+  push:
+    tags:
+      - 'v*' # v1.0.0 などのタグがプッシュされたときに実行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # GitHub Releasesを作成するために必要
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 1. Minecraft 1.19.2に必要な Java 17 をセットアップ
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+          cache: 'gradle' # 依存関係をキャッシュしてビルドを高速化
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # 2. Fabric Loom を使用したビルドの実行
+      - name: Build with Gradle
+        run: ./gradlew build
+
+      # 3. GitHub Releasesを作成し、成果物のJARをアップロード
+      - name: Create Release and Upload JAR
+        uses: softprops/action-gh-release@v2
+        with:
+          # build/libs/ 内にある余分なファイル（sources等）を除外するため、
+          # 通常のjarやremapされたjarファイルを指定します
+          files: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
+            !build/libs/*-dev.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -13,6 +13,7 @@ import java.util.Map;
 public class OudiaSavedState extends PersistentState {
     private static final String KEY = "oudiabridge_state";
     private final Map<String, OudiaWorldSyncState.DiagramProject> projects = new HashMap<>();
+    private final Map<Long, OudiaWorldSyncState.TrainOperatingState> operatingStates = new HashMap<>();
     private String activeProjectId = "";
 
     public static OudiaSavedState createFromNbt(NbtCompound nbt) {
@@ -23,7 +24,6 @@ public class OudiaSavedState extends PersistentState {
 
     public static OudiaSavedState get(ServerWorld world) {
         if (world == null) return null;
-        // 異次元にいる場合でも常にオーバーワールドの PersistentStateManager (world/data) を利用する
         ServerWorld overworld = world.getServer() != null ? world.getServer().getOverworld() : world;
         PersistentStateManager manager = (overworld != null ? overworld : world).getPersistentStateManager();
         return manager.getOrCreate(OudiaSavedState::createFromNbt, OudiaSavedState::new, KEY);
@@ -38,51 +38,14 @@ public class OudiaSavedState extends PersistentState {
 
     public void clearAll() {
         this.projects.clear();
+        this.operatingStates.clear();
         this.activeProjectId = "";
         this.markDirty();
     }
 
     public void applyToRuntime() {
-        OudiaWorldSyncState runtime = OudiaWorldSyncState.getInstance();
-        runtime.clear();
-        runtime.setActiveProjectId(activeProjectId);
-
-        for (Map.Entry<String, OudiaWorldSyncState.DiagramProject> entry : projects.entrySet()) {
-            OudiaWorldSyncState.DiagramProject srcProj = entry.getValue();
-            OudiaWorldSyncState.DiagramProject dstProj = runtime.getOrCreateProject(srcProj.id, srcProj.name);
-            dstProj.depotId = srcProj.depotId;
-            dstProj.startStationId = srcProj.startStationId;
-
-            for (Map.Entry<String, OudiaWorldSyncState.StationRuntimeConfig> stEntry : srcProj.stationConfigs.entrySet()) {
-                OudiaWorldSyncState.StationRuntimeConfig srcSt = stEntry.getValue();
-                OudiaWorldSyncState.StationRuntimeConfig dstSt = dstProj.getOrCreateStationConfig(stEntry.getKey());
-                dstSt.mtrId = srcSt.mtrId;
-                dstSt.mappingType = srcSt.mappingType;
-                dstSt.mtrStationId = srcSt.mtrStationId;
-                dstSt.mtrStationName = srcSt.mtrStationName;
-                dstSt.enabled = srcSt.enabled;
-            }
-
-            for (Map.Entry<Long, OudiaWorldSyncState.TrainRuntimeConfig> trEntry : srcProj.trainConfigs.entrySet()) {
-                OudiaWorldSyncState.TrainRuntimeConfig srcTr = trEntry.getValue();
-                OudiaWorldSyncState.TrainRuntimeConfig dstTr = dstProj.getOrCreateTrainConfig(trEntry.getKey());
-                dstTr.depotName = srcTr.depotName;
-                dstTr.depotLineName = srcTr.depotLineName;
-                dstTr.depotId = srcTr.depotId;
-                dstTr.speedMultiplier = srcTr.speedMultiplier;
-                dstTr.departureOffsetTicks = srcTr.departureOffsetTicks;
-                dstTr.minimumDwellTicks = srcTr.minimumDwellTicks;
-                dstTr.maxRailSpeed = srcTr.maxRailSpeed;
-                dstTr.firstArrivalTime = srcTr.firstArrivalTime;
-                dstTr.firstDepartureTime = srcTr.firstDepartureTime;
-                dstTr.startStationId = srcTr.startStationId;
-
-                dstTr.stopSchedules.clear();
-                for (OudiaWorldSyncState.StopSchedule stop : srcTr.stopSchedules) {
-                    dstTr.stopSchedules.add(new OudiaWorldSyncState.StopSchedule(stop.arrivalTime, stop.departureTime, stop.stationName));
-                }
-            }
-        }
+        NbtCompound tempNbt = writeNbt(new NbtCompound());
+        OudiaWorldSyncState.getInstance().readNbt(tempNbt);
     }
 
     public void copyFromRuntime() {
@@ -129,6 +92,18 @@ public class OudiaSavedState extends PersistentState {
             }
 
             this.projects.put(entry.getKey(), dstProj);
+        }
+
+        this.operatingStates.clear();
+        for (Map.Entry<Long, OudiaWorldSyncState.TrainOperatingState> entry : OudiaWorldSyncState.trainOperatingStates.entrySet()) {
+            OudiaWorldSyncState.TrainOperatingState src = entry.getValue();
+            OudiaWorldSyncState.TrainOperatingState dst = new OudiaWorldSyncState.TrainOperatingState(entry.getKey());
+            dst.matchedTrainConfigId = src.matchedTrainConfigId;
+            dst.lastIsOnRoute = src.lastIsOnRoute;
+            dst.turnaroundStopIndexOffset = src.turnaroundStopIndexOffset;
+            dst.lastLoggedStopIndex = src.lastLoggedStopIndex;
+            dst.lockedStationStopIndex = src.lockedStationStopIndex;
+            this.operatingStates.put(entry.getKey(), dst);
         }
 
         this.markDirty();
@@ -192,77 +167,39 @@ public class OudiaSavedState extends PersistentState {
         }
         nbt.put("projects", projList);
 
+        NbtList operatingList = new NbtList();
+        for (Map.Entry<Long, OudiaWorldSyncState.TrainOperatingState> entry : operatingStates.entrySet()) {
+            OudiaWorldSyncState.TrainOperatingState state = entry.getValue();
+            NbtCompound value = new NbtCompound();
+            value.putLong("trainId", entry.getKey());
+            if (state.matchedTrainConfigId != null) {
+                value.putLong("matchedTrainConfigId", state.matchedTrainConfigId);
+            }
+            value.putBoolean("lastIsOnRoute", state.lastIsOnRoute);
+            value.putInt("turnaroundStopIndexOffset", state.turnaroundStopIndexOffset);
+            value.putInt("lastLoggedStopIndex", state.lastLoggedStopIndex);
+            value.putInt("lockedStationStopIndex", state.lockedStationStopIndex);
+            operatingList.add(value);
+        }
+
+        nbt.put("operatingStates", operatingList);
+
         return nbt;
     }
 
     public void readNbt(NbtCompound nbt) {
-        activeProjectId = nbt.contains("activeProjectId") ? nbt.getString("activeProjectId") : "";
-        projects.clear();
+        OudiaWorldSyncState tempRuntime = OudiaWorldSyncState.getInstance();
+        tempRuntime.readNbt(nbt);
+        this.activeProjectId = tempRuntime.getActiveProjectId();
 
-        if (nbt.contains("projects")) {
-            NbtList projList = nbt.getList("projects", 10);
-            for (int i = 0; i < projList.size(); i++) {
-                NbtCompound projNbt = projList.getCompound(i);
-                String id = projNbt.getString("id");
-                String name = projNbt.getString("name");
+        this.projects.clear();
+        for (Map.Entry<String, OudiaWorldSyncState.DiagramProject> e : tempRuntime.getProjects().entrySet()) {
+            this.projects.put(e.getKey(), e.getValue());
+        }
 
-                OudiaWorldSyncState.DiagramProject proj = new OudiaWorldSyncState.DiagramProject(id, name);
-                proj.depotId = projNbt.contains("depotId") ? projNbt.getLong("depotId") : -1L;
-                proj.startStationId = projNbt.contains("startStationId") ? projNbt.getLong("startStationId") : -1L;
-
-                if (projNbt.contains("stations")) {
-                    NbtCompound stationTag = projNbt.getCompound("stations");
-                    for (String key : stationTag.getKeys()) {
-                        NbtCompound value = stationTag.getCompound(key);
-                        OudiaWorldSyncState.StationRuntimeConfig cfg = new OudiaWorldSyncState.StationRuntimeConfig();
-                        cfg.mtrId = value.contains("mtrId") ? value.getLong("mtrId") : (value.contains("mtrStationId") ? value.getLong("mtrStationId") : -1L);
-                        cfg.mappingType = value.contains("mappingType") ? value.getInt("mappingType") : 1;
-                        cfg.mtrStationId = cfg.mtrId;
-                        cfg.mtrStationName = value.getString("mtrStationName");
-                        cfg.enabled = !value.contains("enabled") || value.getBoolean("enabled");
-                        proj.stationConfigs.put(key, cfg);
-                    }
-                }
-
-                if (projNbt.contains("trains")) {
-                    NbtCompound trainTag = projNbt.getCompound("trains");
-                    for (String key : trainTag.getKeys()) {
-                        try {
-                            long trainId = Long.parseLong(key);
-                            NbtCompound value = trainTag.getCompound(key);
-                            OudiaWorldSyncState.TrainRuntimeConfig cfg = new OudiaWorldSyncState.TrainRuntimeConfig();
-                            cfg.depotName = value.getString("depotName");
-                            cfg.depotLineName = value.getString("depotLineName");
-                            cfg.depotId = value.contains("depotId") ? value.getLong("depotId") : -1L;
-                            cfg.speedMultiplier = value.getDouble("speedMultiplier");
-                            cfg.departureOffsetTicks = value.getInt("departureOffsetTicks");
-                            cfg.minimumDwellTicks = value.getInt("minimumDwellTicks");
-                            cfg.maxRailSpeed = value.getInt("maxRailSpeed");
-                            cfg.firstArrivalTime = value.getString("firstArrivalTime");
-                            cfg.firstDepartureTime = value.getString("firstDepartureTime");
-                            cfg.startStationId = value.contains("startStationId") ? value.getLong("startStationId") : -1L;
-
-                            if (value.contains("stops")) {
-                                NbtList stopsList = value.getList("stops", 10);
-                                cfg.stopSchedules.clear();
-                                for (int j = 0; j < stopsList.size(); j++) {
-                                    NbtCompound stopComp = stopsList.getCompound(j);
-                                    cfg.stopSchedules.add(new OudiaWorldSyncState.StopSchedule(
-                                            stopComp.getString("arr"),
-                                            stopComp.getString("dep"),
-                                            stopComp.contains("name") ? stopComp.getString("name") : ""
-                                    ));
-                                }
-                            }
-
-                            proj.trainConfigs.put(trainId, cfg);
-                        } catch (NumberFormatException ignored) {
-                        }
-                    }
-                }
-
-                projects.put(id, proj);
-            }
+        this.operatingStates.clear();
+        for (Map.Entry<Long, OudiaWorldSyncState.TrainOperatingState> e : OudiaWorldSyncState.trainOperatingStates.entrySet()) {
+            this.operatingStates.put(e.getKey(), e.getValue());
         }
     }
 }
