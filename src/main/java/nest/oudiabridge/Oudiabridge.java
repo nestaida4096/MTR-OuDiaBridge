@@ -1,9 +1,9 @@
-package com.oudiabridge;
+package nest.oudiabridge;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.oudiabridge.sync.OudiaSavedState;
-import com.oudiabridge.sync.OudiaServerSpeedManager;
-import com.oudiabridge.sync.OudiaWorldSyncState;
+import nest.oudiabridge.sync.OudiaSavedState;
+import nest.oudiabridge.sync.OudiaServerSpeedManager;
+import nest.oudiabridge.sync.OudiaWorldSyncState;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -38,7 +38,7 @@ public class Oudiabridge implements ModInitializer {
     public static final Identifier REQUEST_DIA_LIST_PACKET_ID = new Identifier("oudiabridge", "req_dia_list");
     public static final Identifier RESPONSE_DIA_LIST_PACKET_ID = new Identifier("oudiabridge", "res_dia_list");
     public static final Identifier RESPONSE_DIA_LIST_2_PACKET_ID = new Identifier("oudiabridge", "res_dia_list_2");
-    public static final Identifier TRAIN_STATE_BROADCAST_PACKET_ID = new Identifier("oudiabridge", "bc_railspeed");
+    public static final Identifier TIME_SYNC_ID = new Identifier("oudiabridge", "current_sec_sync");
 
     private static final Map<UUID, ChunkBuffer> INCOMPLETE_TRANSFERS = new ConcurrentHashMap<>();
 

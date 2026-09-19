@@ -1,7 +1,7 @@
-package com.oudiabridge.client;
+package nest.oudiabridge.client;
 
-import com.oudiabridge.Oudiabridge;
-import com.oudiabridge.sync.OudiaWorldSyncState;
+import nest.oudiabridge.Oudiabridge;
+import nest.oudiabridge.sync.OudiaWorldSyncState;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.nbt.NbtCompound;
@@ -9,16 +9,12 @@ import net.minecraft.nbt.NbtIo;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * クライアント側Mod初期化クラス
  * サーバーから受信したNBTデータ（OudiaSavedState形式）をOudiaWorldSyncStateへ一括反映します。
  */
 public class OudiabridgeClient implements ClientModInitializer {
-
-    public static Map<Long, Float> finalSpeedManager = new ConcurrentHashMap<>();
 
     @Override
     public void onInitializeClient() {
@@ -45,5 +41,10 @@ public class OudiabridgeClient implements ClientModInitializer {
                 }
             });
         });
+
+        ClientPlayNetworking.registerGlobalReceiver(Oudiabridge.TIME_SYNC_ID, ((minecraftClient, clientPlayNetworkHandler, packetByteBuf, packetSender) -> {
+            int currentSec = packetByteBuf.readInt();
+            minecraftClient.execute(() -> OudiaWorldSyncState.updateClientSyncedTime(currentSec));
+        }));
     }
 }

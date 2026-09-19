@@ -1,7 +1,7 @@
-package com.oudiabridge.client.screen;
+package nest.oudiabridge.client.screen;
 
-import com.oudiabridge.parser.OudiaParser;
-import com.oudiabridge.sync.OudiaWorldSyncState;
+import nest.oudiabridge.Oudiabridge;
+import nest.oudiabridge.parser.OudiaParser;
 import mtr.client.ClientData;
 import mtr.data.Depot;
 import mtr.data.Station;
@@ -94,7 +94,7 @@ public class DiaConfigScreen extends Screen {
     }
 
     private void registerServerResponseReceiver() {
-        ClientPlayNetworking.registerReceiver(com.oudiabridge.Oudiabridge.RESPONSE_DIA_LIST_PACKET_ID, (client, handler, buf, responseSender) -> {
+        ClientPlayNetworking.registerReceiver(Oudiabridge.RESPONSE_DIA_LIST_PACKET_ID, (client, handler, buf, responseSender) -> {
             int length = buf.readInt();
             byte[] dataBytes = new byte[length];
             buf.readBytes(dataBytes);
@@ -137,7 +137,7 @@ public class DiaConfigScreen extends Screen {
 
     private void requestServerState() {
         net.minecraft.network.PacketByteBuf buf = PacketByteBufs.create();
-        ClientPlayNetworking.send(com.oudiabridge.Oudiabridge.REQUEST_DIA_LIST_PACKET_ID, buf);
+        ClientPlayNetworking.send(Oudiabridge.REQUEST_DIA_LIST_PACKET_ID, buf);
     }
 
     private void setupStationDropdownsData() {
@@ -400,7 +400,7 @@ public class DiaConfigScreen extends Screen {
         serverActiveProjectId = proj.id;
         net.minecraft.network.PacketByteBuf buf = PacketByteBufs.create();
         buf.writeString(proj.id);
-        ClientPlayNetworking.send(com.oudiabridge.Oudiabridge.SELECT_PROJECT_PACKET_ID, buf);
+        ClientPlayNetworking.send(Oudiabridge.SELECT_PROJECT_PACKET_ID, buf);
 
         // 作業プロジェクト化の際、編集可能にするためにデータ構築およびUIの更新を行う
         this.data = proj.toParseResult();
@@ -412,7 +412,7 @@ public class DiaConfigScreen extends Screen {
     private void deleteProject(String projId) {
         net.minecraft.network.PacketByteBuf buf = PacketByteBufs.create();
         buf.writeString(projId);
-        ClientPlayNetworking.send(com.oudiabridge.Oudiabridge.DELETE_PROJECT_PACKET_ID, buf);
+        ClientPlayNetworking.send(Oudiabridge.DELETE_PROJECT_PACKET_ID, buf);
     }
 
     private void registerToMtr() {
@@ -516,7 +516,7 @@ public class DiaConfigScreen extends Screen {
                 buf.writeInt(length);
                 buf.writeBytes(fullBytes, start, length);
 
-                ClientPlayNetworking.send(com.oudiabridge.Oudiabridge.SYNC_PACKET_ID, buf);
+                ClientPlayNetworking.send(Oudiabridge.SYNC_PACKET_ID, buf);
             }
         } catch (IOException e) {
             e.printStackTrace();

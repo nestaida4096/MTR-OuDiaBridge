@@ -1,4 +1,4 @@
-package com.oudiabridge.sync;
+package nest.oudiabridge.sync;
 
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
