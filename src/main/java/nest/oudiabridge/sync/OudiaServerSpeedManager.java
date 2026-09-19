@@ -1,6 +1,6 @@
-package com.oudiabridge.sync;
+package nest.oudiabridge.sync;
 
-import com.oudiabridge.Oudiabridge;
+import nest.oudiabridge.Oudiabridge;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;

@@ -1,6 +1,6 @@
-package com.oudiabridge.client.mixin;
+package nest.oudiabridge.client.mixin;
 
-import com.oudiabridge.client.screen.DiaConfigScreen;
+import nest.oudiabridge.client.screen.DiaConfigScreen;
 import mtr.screen.DashboardScreen;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.widget.ButtonWidget;

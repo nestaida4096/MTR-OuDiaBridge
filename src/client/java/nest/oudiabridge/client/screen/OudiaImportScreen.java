@@ -1,14 +1,12 @@
-package com.oudiabridge.client.screen;
+package nest.oudiabridge.client.screen;
 
-import com.oudiabridge.parser.OudiaParser;
+import nest.oudiabridge.parser.OudiaParser;
 import mtr.screen.DashboardScreen;
 import mtr.screen.FileUploaderScreen;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.Text;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.function.Consumer;
 
 public class OudiaImportScreen extends FileUploaderScreen {
     private final DashboardScreen parent;

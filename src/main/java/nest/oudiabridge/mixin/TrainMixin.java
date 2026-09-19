@@ -1,12 +1,16 @@
-package com.oudiabridge.mixin;
+package nest.oudiabridge.mixin;
 
-import com.oudiabridge.Oudiabridge;
-import com.oudiabridge.sync.OudiaSavedState;
-import com.oudiabridge.sync.OudiaWorldSyncState;
-import com.oudiabridge.sync.OudiaServerSpeedManager;
+import nest.oudiabridge.Oudiabridge;
+import nest.oudiabridge.sync.OudiaSavedState;
+import nest.oudiabridge.sync.OudiaWorldSyncState;
+import nest.oudiabridge.sync.OudiaServerSpeedManager;
 import mtr.data.Depot;
 import mtr.data.Train;
 import mtr.path.PathData;
+import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.network.PacketByteBuf;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.world.World;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -19,6 +23,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Mixin(Train.class)
 public abstract class TrainMixin {
@@ -63,6 +68,33 @@ public abstract class TrainMixin {
 
     private World world;
     private Depot currentDepot;
+
+    private int count = 0;
+
+    /**
+     * サーバーとクライアントで統一された現在時間（秒）を取得します。
+     * クライアント側ではサーバーから同期された時間基準の秒数を返します。
+     */
+    private int getCurrentSyncedTimeSeconds() {
+        if (this.world != null && this.world.isClient()) {
+            return OudiaWorldSyncState.getClientSyncedCurrentTimeSeconds();
+        }
+        return OudiaWorldSyncState.getCurrentRealTimeSeconds();
+    }
+
+    /**
+     * 目標時刻と現在時刻の差分（残り秒数）を計算します。
+     * 日跨ぎ補正を行いつつ、過度な遅延（過剰な過去時刻）は即時発車（<=0）として処理します。
+     */
+    private int calculateRemainingSeconds(int targetSec, int currentSec) {
+        if (targetSec < 0) return -1;
+        int diff = targetSec - currentSec;
+
+        if (diff < -43200) diff += 86400;
+        else if (diff > 43200) diff -= 86400;
+
+        return diff;
+    }
 
     private OudiaWorldSyncState.TrainOperatingState getOperatingState() {
         long trainId = getTrainIdSafe();
@@ -177,7 +209,6 @@ public abstract class TrainMixin {
 
         OudiaWorldSyncState.TrainOperatingState opState = getOperatingState();
 
-        // クライアント側はサーバーから同期された matchedTrainConfigId を参照するのみ（独自スナップやログ出力は行わない）
         if (this.world != null && this.world.isClient()) {
             if (opState.matchedTrainConfigId != null && activeProject.trainConfigs.containsKey(opState.matchedTrainConfigId)) {
                 return activeProject.trainConfigs.get(opState.matchedTrainConfigId);
@@ -185,7 +216,19 @@ public abstract class TrainMixin {
             return null;
         }
 
-        int currentSec = OudiaWorldSyncState.getCurrentRealTimeSeconds();
+        int currentSec = getCurrentSyncedTimeSeconds();
+
+        if (this.world != null && !this.world.isClient()) {
+            if (count < 0) {
+                PacketByteBuf buf = PacketByteBufs.create();
+                buf.writeInt(currentSec);
+                for (ServerPlayerEntity player : Objects.requireNonNull(this.world.getServer()).getPlayerManager().getPlayerList()) {
+                    ServerPlayNetworking.send(player, Oudiabridge.TIME_SYNC_ID, buf);
+                }
+                count = 100;
+            }
+            count--;
+        }
 
         if (opState.matchedTrainConfigId != null && activeProject.trainConfigs.containsKey(opState.matchedTrainConfigId)) {
             return activeProject.trainConfigs.get(opState.matchedTrainConfigId);
@@ -406,11 +449,13 @@ public abstract class TrainMixin {
             return this.elapsedDwellTicks < minDwellTicks;
         }
 
-        int currentSec = OudiaWorldSyncState.getCurrentRealTimeSeconds();
-        int remainingSec = departureSec - currentSec;
+        int currentSec = getCurrentSyncedTimeSeconds();
+        int remainingSec = calculateRemainingSeconds(departureSec, currentSec);
 
-        if (remainingSec < -43200) remainingSec += 86400;
-        else if (remainingSec > 43200) remainingSec -= 86400;
+        // 発車時間（または遅延時）を過ぎた場合はドアを閉じる指示
+        if (remainingSec <= 0) {
+            return false;
+        }
 
         int remainingTicks = remainingSec * 20;
 
@@ -484,7 +529,7 @@ public abstract class TrainMixin {
         }
 
         int targetArrSec = parseOudiaTimeToSeconds(targetArrStr);
-        int currentSec = OudiaWorldSyncState.getCurrentRealTimeSeconds();
+        int currentSec = getCurrentSyncedTimeSeconds();
 
         boolean calculateThisTick = this.isFirstRailSpeedCall;
         this.isFirstRailSpeedCall = false;
@@ -492,9 +537,7 @@ public abstract class TrainMixin {
         if (calculateThisTick && targetArrSec > 0 && this.path != null && index >= 0 && index < this.path.size()) {
             double remainingDistance = this.distances.get(this.nextStoppingIndex) - this.railProgress;
 
-            int timeRemainingSec = targetArrSec - currentSec;
-            if (timeRemainingSec < -43200) timeRemainingSec += 86400;
-            if (timeRemainingSec > 43200) timeRemainingSec -= 86400;
+            int timeRemainingSec = calculateRemainingSeconds(targetArrSec, currentSec);
 
             if (timeRemainingSec > 5 && remainingDistance > 0) {
                 double requiredSpeedPerSecond = remainingDistance / timeRemainingSec;
@@ -545,12 +588,6 @@ public abstract class TrainMixin {
             if (this.speed <= 0) {
                 if (opState.lockedStationStopIndex < 0) {
                     opState.lockedStationStopIndex = Math.max(0, getMtrRawStopIndex() - opState.turnaroundStopIndexOffset);
-                }
-
-                long trainId = getTrainIdSafe();
-                OudiaWorldSyncState.TrainRuntimeConfig config = resolveOrSnapTrainConfig(trainId);
-                if (config != null) {
-                    this.elapsedDwellTicks += ticksElapsed;
                 }
             } else {
                 opState.lockedStationStopIndex = -1;
@@ -610,13 +647,32 @@ public abstract class TrainMixin {
         int stationStopIndex = getCurrentStationStopIndex();
         int minDwellTicks = Math.max(Train.DOOR_MOVE_TIME + 40, config.minimumDwellTicks);
 
+        // 1. 最小停車時間に達していない場合は延長
         if (this.elapsedDwellTicks < minDwellTicks) {
             cir.setReturnValue((int) this.elapsedDwellTicks + 20);
             return;
         }
 
+        // セーフティタイムアウト: 最小停車時間を30分（1200*30ticks）超過しても停車している場合は強制発車
+        if (this.elapsedDwellTicks > minDwellTicks + (1200 * 30)) {
+            cir.setReturnValue((int) this.elapsedDwellTicks);
+            return;
+        }
+
         boolean target = shouldDoorsBeOpenByDiagram(config, stationStopIndex);
-        if (target || this.doorValue > 0.01F) {
+
+        // 2. ダイヤ上まだドアを開けるべき場合は延長
+        if (target) {
+            cir.setReturnValue((int) this.elapsedDwellTicks + 20);
+            return;
+        }
+
+        // 3. ドアが閉まりきるまでの待機（ドア閉開始から5秒以上経過した場合は不具合防止のため強制通過）
+        if (this.doorValue > 0.01F) {
+            if (this.elapsedDwellTicks > minDwellTicks + 100) {
+                cir.setReturnValue((int) this.elapsedDwellTicks);
+                return;
+            }
             cir.setReturnValue((int) this.elapsedDwellTicks + 20);
             return;
         }
@@ -626,11 +682,8 @@ public abstract class TrainMixin {
         int departureSec = parseOudiaTimeToSeconds(depTimeStr);
 
         if (departureSec >= 0) {
-            int currentSec = OudiaWorldSyncState.getCurrentRealTimeSeconds();
-            int remainingSec = departureSec - currentSec;
-
-            if (remainingSec < -43200) remainingSec += 86400;
-            else if (remainingSec > 43200) remainingSec -= 86400;
+            int currentSec = getCurrentSyncedTimeSeconds();
+            int remainingSec = calculateRemainingSeconds(departureSec, currentSec);
 
             if (remainingSec > 0) {
                 cir.setReturnValue((int) this.elapsedDwellTicks + 20);
@@ -638,10 +691,13 @@ public abstract class TrainMixin {
             }
         }
 
+        // すべての条件を満たしたら（ドアが閉じて発車時刻到達）、現在の elapsedDwellTicks を返して即時発車
         cir.setReturnValue((int) this.elapsedDwellTicks);
     }
 
     private long getTrainIdSafe() {
         return ((Train) (Object) this).id;
     }
+
+
 }

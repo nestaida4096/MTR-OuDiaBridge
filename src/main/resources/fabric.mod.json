@@ -16,10 +16,10 @@
   "environment": "*",
   "entrypoints": {
     "client": [
-      "com.oudiabridge.client.OudiabridgeClient"
+      "nest.oudiabridge.client.OudiabridgeClient"
     ],
     "main": [
-      "com.oudiabridge.Oudiabridge"
+      "nest.oudiabridge.Oudiabridge"
     ]
   },
   "mixins": [

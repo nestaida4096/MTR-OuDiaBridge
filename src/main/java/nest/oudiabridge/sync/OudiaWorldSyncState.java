@@ -1,4 +1,4 @@
-package com.oudiabridge.sync;
+package nest.oudiabridge.sync;
 
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
@@ -10,10 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * サーバー・クライアント共通のOuDia同期データ保持用シングルトンクラス
- * 複数のダイヤプロジェクトおよび列車の運行動態データを管理します。
- */
 public final class OudiaWorldSyncState {
     private static final OudiaWorldSyncState INSTANCE = new OudiaWorldSyncState();
 
@@ -23,6 +19,10 @@ public final class OudiaWorldSyncState {
 
     // 列車ごとの運用動態データ（ワールドデータの保存・復元およびネットワーク同期用）
     public static final Map<Long, TrainOperatingState> trainOperatingStates = new ConcurrentHashMap<>();
+
+    // クライアント側でのサーバー同期時刻管理用フィールド
+    private static volatile int clientSyncedServerSec = -1;
+    private static volatile long clientSyncedLocalTimestampMs = 0L;
 
     private OudiaWorldSyncState() {
     }
@@ -74,9 +74,20 @@ public final class OudiaWorldSyncState {
         activeProjectId = "";
     }
 
-    /**
-     * NBTデータから全ダイヤプロジェクトおよび列車運行動態データを復元します（サーバー・クライアント共通）
-     */
+    public static void updateClientSyncedTime(int serverSec) {
+        clientSyncedServerSec = serverSec;
+        clientSyncedLocalTimestampMs = System.currentTimeMillis();
+    }
+
+    public static int getClientSyncedCurrentTimeSeconds() {
+        if (clientSyncedServerSec < 0) {
+            return getCurrentRealTimeSeconds();
+        }
+        long elapsedMs = System.currentTimeMillis() - clientSyncedLocalTimestampMs;
+        int currentSec = clientSyncedServerSec + (int) (elapsedMs / 1000L);
+        return ((currentSec % 86400) + 86400) % 86400;
+    }
+
     public void readNbt(NbtCompound nbt) {
         if (nbt == null) return;
 
@@ -147,6 +158,8 @@ public final class OudiaWorldSyncState {
 
                 this.projects.put(id, proj);
             }
+
+
         }
 
         trainOperatingStates.clear();
@@ -169,10 +182,6 @@ public final class OudiaWorldSyncState {
         }
     }
 
-    /**
-     * 時刻文字列 ("835", "600", "114550", "1145", "11:45:50" 等) を
-     * 現実時間の「日の始まりからの秒数」に正確に変換する
-     */
     public static int parseTimeToSeconds(String timeStr) {
         if (timeStr == null || timeStr.trim().isEmpty()) {
             return -1;
@@ -206,22 +215,18 @@ public final class OudiaWorldSyncState {
             }
 
             return h * 3600 + m * 60 + s;
+
+
         } catch (NumberFormatException e) {
             return -1;
         }
     }
 
-    /**
-     * 現在の現実時間（秒）を取得
-     */
     public static int getCurrentRealTimeSeconds() {
         LocalTime now = LocalTime.now();
         return now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond();
     }
 
-    /**
-     * 列車ごとのダイヤ運行動態データ構造
-     */
     public static final class TrainOperatingState {
         public long trainId;
         public Long matchedTrainConfigId = null;
@@ -238,9 +243,6 @@ public final class OudiaWorldSyncState {
         }
     }
 
-    /**
-     * 単一のダイヤプロジェクト（1つの .oud2 設定群）を表すデータ構造
-     */
     public static final class DiagramProject {
         public String id = "";
         public String name = "";
@@ -279,6 +281,8 @@ public final class OudiaWorldSyncState {
             this.departureTime = departureTime == null ? "" : departureTime;
             this.stationName = stationName == null ? "" : stationName;
         }
+
+
     }
 
     public static final class TrainRuntimeConfig {
@@ -301,6 +305,8 @@ public final class OudiaWorldSyncState {
             }
             return null;
         }
+
+
     }
 
     public static final class StationRuntimeConfig {
@@ -310,5 +316,7 @@ public final class OudiaWorldSyncState {
         public long mtrStationId = -1L;
         public String mtrStationName = "";
         public boolean enabled = true;
+
+
     }
 }
