@@ -676,7 +676,7 @@ public abstract class TrainMixin {
             return;
         }
 
-        // セーフティタイムアウト: 最小停車時間を30分（1200*30ticks）超過しても停車している場合は強制発車
+        // セーフティタイムアウト: 時刻表による停車時間の延長要求を30分で打ち切る。MTR本体の線路閉塞判定は維持する。
         if (this.elapsedDwellTicks > minDwellTicks + (1200 * 30)) {
             cir.setReturnValue((int) this.elapsedDwellTicks);
             return;
