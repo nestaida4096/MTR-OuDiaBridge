@@ -210,7 +210,9 @@ public final class OudiaWorldSyncState {
             int m = Integer.parseInt(clean.substring(2, 4));
             int s = Integer.parseInt(clean.substring(4, 6));
 
-            if (h < 0 || h >= 24 || m < 0 || m >= 60 || s < 0 || s >= 60) {
+            // OuDia は 24:00 以降の時刻（翌日扱い）を使用することがある。
+            // 2日未満の時刻を許可し、日跨ぎの差分計算側で現在時刻と比較する。
+            if (h < 0 || h >= 48 || m < 0 || m >= 60 || s < 0 || s >= 60) {
                 return -1;
             }
 
