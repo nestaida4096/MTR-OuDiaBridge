@@ -88,7 +88,8 @@ public abstract class TrainMixin {
      */
     private int calculateRemainingSeconds(int targetSec, int currentSec) {
         if (targetSec < 0) return -1;
-        int diff = targetSec - currentSec;
+        // OuDia の 24:xx 以降の時刻も扱えるよう、まず1日単位に正規化する。
+        int diff = (targetSec - currentSec) % 86400;
 
         if (diff < -43200) diff += 86400;
         else if (diff > 43200) diff -= 86400;
