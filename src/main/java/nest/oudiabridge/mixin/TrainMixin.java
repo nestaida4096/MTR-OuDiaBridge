@@ -189,10 +189,22 @@ public abstract class TrainMixin {
 
     private int getCurrentStationStopIndex() {
         OudiaWorldSyncState.TrainOperatingState opState = getOperatingState();
+        int mappedIndex = getScheduleStopIndex(getMtrRawStopIndex(), opState.turnaroundStopIndexOffset);
+
         if (this.speed <= 0.001F && opState.lockedStationStopIndex >= 0) {
+            // 旧バージョンで保存された lockedStationStopIndex は 1 始まりの可能性がある。
+            // 現在の PathData から算出した値と不一致なら、停車中の駅インデックスを補正する。
+            if (opState.lockedStationStopIndex != mappedIndex) {
+                int previousIndex = opState.lockedStationStopIndex;
+                opState.lockedStationStopIndex = mappedIndex;
+                if (opState.lastLoggedStopIndex == previousIndex) {
+                    opState.lastLoggedStopIndex = mappedIndex;
+                }
+            }
             return opState.lockedStationStopIndex;
         }
-        return getScheduleStopIndex(getMtrRawStopIndex(), opState.turnaroundStopIndexOffset);
+
+        return mappedIndex;
     }
 
     private String getEffectiveDepartureTime(OudiaWorldSyncState.TrainRuntimeConfig config, OudiaWorldSyncState.StopSchedule stop, int stationStopIndex) {
