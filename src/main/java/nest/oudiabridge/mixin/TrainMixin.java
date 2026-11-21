@@ -176,12 +176,22 @@ public abstract class TrainMixin {
         return 0;
     }
 
+    /**
+     * MTR PathData.stopIndex は PathFinder の stopIndexOffset=1 により 1 始まり。
+     * OuDia の stopSchedules は List のため 0 始まり。
+     * 折返し後は折返し地点の raw index を基準点として扱う。
+     */
+    private int getScheduleStopIndex(int rawStopIndex, int turnaroundOffset) {
+        int offset = turnaroundOffset > 0 ? turnaroundOffset : 1;
+        return Math.max(0, rawStopIndex - offset);
+    }
+
     private int getCurrentStationStopIndex() {
         OudiaWorldSyncState.TrainOperatingState opState = getOperatingState();
         if (this.speed <= 0.001F && opState.lockedStationStopIndex >= 0) {
             return opState.lockedStationStopIndex;
         }
-        return Math.max(0, getMtrRawStopIndex() - opState.turnaroundStopIndexOffset);
+        return getScheduleStopIndex(getMtrRawStopIndex(), opState.turnaroundStopIndexOffset);
     }
 
     private String getEffectiveDepartureTime(OudiaWorldSyncState.TrainRuntimeConfig config, OudiaWorldSyncState.StopSchedule stop, int stationStopIndex) {
@@ -587,7 +597,7 @@ public abstract class TrainMixin {
 
             if (this.speed <= 0) {
                 if (opState.lockedStationStopIndex < 0) {
-                    opState.lockedStationStopIndex = Math.max(0, getMtrRawStopIndex() - opState.turnaroundStopIndexOffset);
+                    opState.lockedStationStopIndex = getScheduleStopIndex(getMtrRawStopIndex(), opState.turnaroundStopIndexOffset);
                 }
             } else {
                 opState.lockedStationStopIndex = -1;
