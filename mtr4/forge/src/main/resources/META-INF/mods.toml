@@ -1,0 +1,27 @@
+modLoader="javafml"
+loaderVersion="[49,)"
+license="MIT"
+[[mods]]
+modId="oudiabridge"
+version="${version}"
+displayName="MTR OuDiaBridge"
+authors="nestaida4096"
+description='''OuDia timetable integration for Minecraft Transit Railway 4.'''
+[[dependencies.oudiabridge]]
+modId="forge"
+mandatory=true
+versionRange="[49,)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.oudiabridge]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.4,1.20.5)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.oudiabridge]]
+modId="architectury"
+mandatory=true
+versionRange="[11.1.17,)"
+ordering="AFTER"
+side="BOTH"
