@@ -36,7 +36,7 @@ public final class TrainDiagnosticsCommand {
                         .executes(context -> listTimetables(context.getSource())))
                 .then(literal("bind")
                         .requires(source -> source.hasPermission(2))
-                        .then(argument("vehicleId", LongArgumentType.longArg(0))
+                        .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
                                 .then(argument("timetableId", StringArgumentType.string())
                                         .then(argument("trainIndex", IntegerArgumentType.integer(0))
                                                 .executes(context -> bind(
