@@ -52,6 +52,77 @@ public final class OudiaVehicleMatcher {
         return MatchResult.matched(candidate.trainIndex, candidate.score);
     }
 
+    /** Returns read-only diagnostics without creating or changing a vehicle binding. */
+    public static Diagnostic diagnose(OudiaParser.ParseResult timetable,
+                                      Mtr4RuntimeAccess.VehicleSnapshot vehicle) {
+        if (timetable == null || vehicle == null) {
+            return new Diagnostic(false, 0, 0, 0, 0, List.of(), java.util.Map.of(),
+                    "", "", "Timetable or vehicle is missing");
+        }
+
+        String current = normalize(vehicle.station());
+        String next = normalize(vehicle.nextStation());
+        boolean routeMatches = same(timetable.routeName, vehicle.route());
+        int currentOnly = 0;
+        int nextOnly = 0;
+        int pairMatches = 0;
+        java.util.Map<String, Integer> directions = new java.util.LinkedHashMap<>();
+        List<Integer> pairTrainIndices = new ArrayList<>();
+
+        for (int trainIndex = 0; trainIndex < timetable.trains.size(); trainIndex++) {
+            OudiaParser.TrainData train = timetable.trains.get(trainIndex);
+            directions.merge(train.direction == null || train.direction.isBlank()
+                    ? "(empty)" : train.direction, 1, Integer::sum);
+            List<String> sequence = new ArrayList<>();
+            for (OudiaParser.StopTime stop : train.stops) {
+                if (stop.stopType == OudiaParser.StopType.NONE
+                        || stop.stationIndex < 0 || stop.stationIndex >= timetable.stations.size()) {
+                    continue;
+                }
+                String name = mappedStationName(timetable, stop.stationIndex);
+                if (!name.isEmpty()) sequence.add(name);
+            }
+
+            boolean hasCurrent = !current.isEmpty() && sequence.contains(current);
+            boolean hasNext = !next.isEmpty() && sequence.contains(next);
+            boolean hasPair = false;
+            for (int i = 0; i + 1 < sequence.size(); i++) {
+                if (!current.isEmpty() && !next.isEmpty()
+                        && same(sequence.get(i), current)
+                        && same(sequence.get(i + 1), next)) {
+                    hasPair = true;
+                    break;
+                }
+            }
+            if (hasPair) {
+                pairMatches++;
+                if (pairTrainIndices.size() < 12) pairTrainIndices.add(trainIndex);
+            } else if (hasCurrent) {
+                currentOnly++;
+            } else if (hasNext) {
+                nextOnly++;
+            }
+        }
+
+        String reason = !routeMatches
+                ? "Route name differs; station-pair counts are shown independently"
+                : pairMatches == 0
+                ? "No train contains the current/next station pair consecutively"
+                : pairMatches == 1
+                ? "Exactly one train contains the consecutive station pair"
+                : "Multiple trains contain the consecutive station pair";
+        return new Diagnostic(routeMatches, timetable.trains.size(), currentOnly, nextOnly,
+                pairMatches, List.copyOf(pairTrainIndices), java.util.Map.copyOf(directions),
+                normalize(timetable.routeName), normalize(vehicle.route()), reason);
+    }
+
+    public record Diagnostic(boolean routeMatches, int trainCount, int currentOnlyCount,
+                             int nextOnlyCount, int pairMatchCount, List<Integer> pairTrainIndices,
+                             java.util.Map<String, Integer> directionCounts,
+                             String normalizedTimetableRoute, String normalizedVehicleRoute,
+                             String reason) {
+    }
+
     private static int scoreTrain(OudiaParser.ParseResult timetable,
                                   OudiaParser.TrainData train,
                                   Mtr4RuntimeAccess.VehicleSnapshot vehicle) {
