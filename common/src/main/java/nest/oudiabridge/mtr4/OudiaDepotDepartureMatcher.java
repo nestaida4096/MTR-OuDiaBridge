@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Associates an MTR4 vehicle with an OuDia train using its depot and estimated depot-exit time.
+ * Associates an MTR4 vehicle with an OuDia train using its depot and recorded or estimated depot-exit time.
  *
  * The route timing estimate is based on MTR4's own path timing profile and the current dwell
  * counter. It is read-only and never changes MTR4 vehicle state.
@@ -79,7 +79,7 @@ public final class OudiaDepotDepartureMatcher {
         if (candidates.isEmpty()) {
             reason = "No train starts at the MTR4 depot in this timetable";
         } else if (withinTolerance == 0) {
-            reason = "No departure is within ±30 seconds of the estimated depot-exit time";
+            reason = "No departure is within ±30 seconds of the MTR4 departure reference";
         } else if (withinTolerance == 1) {
             reason = "Exactly one train matches the depot and ±30-second departure window";
         } else {
