@@ -159,12 +159,8 @@ public final class OudiaDepotDepartureMatcher {
     }
 
     private static String stationName(OudiaParser.ParseResult timetable, int index) {
-        if (index < timetable.syncConfig.stationMappings.size()) {
-            String mapped = timetable.syncConfig.stationMappings.get(index).mtrStationName;
-            if (mapped != null && !mapped.isBlank()) {
-                return mapped;
-            }
-        }
+        // Depot matching is explicitly based on the OuDia station's own name.
+        // Do not substitute an MTR station-name override here.
         return timetable.stations.get(index).name;
     }
 
