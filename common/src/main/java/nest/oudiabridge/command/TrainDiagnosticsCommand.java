@@ -115,6 +115,11 @@ public final class TrainDiagnosticsCommand {
     }
 
     private static int execute(CommandSourceStack source, double radius) {
+        if (!Double.isFinite(radius) || radius < 0 || radius > 4096) {
+            source.sendFailure(Component.literal("Radius must be a finite value between 0 and 4096."));
+            return 0;
+        }
+
         final List<Object> simulators;
         try {
             simulators = Mtr4RuntimeAccess.getSimulators();
