@@ -1,12 +1,25 @@
-# MTR OuDiaSecondV2 Bridge
-## 説明
-MTR3においてダイヤ運転を行うModです。
-oud2ファイルを読み込み、車庫を出てから戻るまでの１通りの運用において、現実時間に基づいたダイヤ走行を行うものです。
-## 必要サイド
-- クライアントとサーバーの両方
-## 注意点
-- 複雑な運用には対応していない場合があります。
-- **サーバーとクライアントの間でタイムゾーンが異なる場合、正しく動作しません。国内専用の非公開サーバーでの利用を推奨します。**
-## ライセンス
-[MIT](LICENSE)
-## *いつもご利用ありがとうございます。バグ報告などはIssueを立ててください*
+# MTR-OuDiaBridge — MTR4
+
+An isolated Architectury multi-loader project. The existing MTR3 project remains at the repository root and is not modified by this subproject.
+
+## Initial target
+- Minecraft 1.20.4
+- MTR4
+- Fabric and MinecraftForge
+- Java 17
+- Architectury API 11.1.17
+
+## Layout
+- common: shared timetable, operation-state, and diagnostics logic
+- fabric: Fabric entry point and platform integrations
+- forge: Forge entry point and platform integrations
+
+## Build
+Run from the repository root:
+```powershell
+.\gradlew.bat -p mtr4 build
+```
+
+This initial commit establishes the loader split and initialization skeleton only. MTR4 vehicle/timetable integration, nearby-train diagnostics, and door-departure behavior have not yet been ported. These features must be implemented against MTR4's `org.mtr.core.data.Vehicle` API and verified independently on both loaders.
+
+Only Minecraft 1.20.4 is configured at this stage. Other MTR4 versions are not yet claimed as supported.

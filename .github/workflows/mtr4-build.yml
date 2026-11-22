@@ -3,11 +3,21 @@ name: MTR4 Architectury Build
 on:
   push:
     paths:
-      - "mtr4/**"
+      - "common/**"
+      - "fabric/**"
+      - "forge/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
       - ".github/workflows/mtr4-build.yml"
   pull_request:
     paths:
-      - "mtr4/**"
+      - "common/**"
+      - "fabric/**"
+      - "forge/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
       - ".github/workflows/mtr4-build.yml"
   workflow_dispatch:
 
@@ -28,4 +38,4 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Build Fabric and Forge
-        run: ./gradlew -p mtr4 build --no-daemon
+        run: ./gradlew build --no-daemon
