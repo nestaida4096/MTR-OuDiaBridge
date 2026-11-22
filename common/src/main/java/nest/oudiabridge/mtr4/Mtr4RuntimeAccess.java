@@ -228,8 +228,10 @@ public final class Mtr4RuntimeAccess {
             Object railProgress = tryReadField(vehicle, "railProgress");
             Object path = tryReadField(extra, "immutablePath");
             int pathSize = path instanceof Collection<?> collection ? collection.size() : -1;
+            double progress = railProgress instanceof Number number ? number.doubleValue() : Double.NaN;
+            String pathRange = describePathRange(path, progress);
             positionStatus = "head-null(railProgress=" + railProgress + ",pathSize=" + pathSize
-                    + ",onRoute=" + onRoute + ")";
+                    + "," + pathRange + ",onRoute=" + onRoute + ")";
         } else if (coordinates == null) {
             positionStatus = "coordinates-unreadable(" + head.getClass().getName() + ")";
         } else {
@@ -241,6 +243,39 @@ public final class Mtr4RuntimeAccess {
                 coordinates == null ? Double.NaN : coordinates[1],
                 coordinates == null ? Double.NaN : coordinates[2],
                 positionStatus);
+    }
+
+    private static String describePathRange(Object path, double progress) {
+        if (!(path instanceof Iterable<?> iterable)) {
+            return "path-not-iterable";
+        }
+        int index = -1;
+        int count = 0;
+        double first = Double.NaN;
+        double last = Double.NaN;
+        double previous = Double.NaN;
+        boolean sorted = true;
+        for (Object pathData : iterable) {
+            Object rawStart = invokeOptional(pathData, "getStartDistance");
+            if (!(rawStart instanceof Number number)) {
+                return "path-start-unreadable";
+            }
+            double start = number.doubleValue();
+            if (count == 0) {
+                first = start;
+            }
+            if (count > 0 && start < previous) {
+                sorted = false;
+            }
+            previous = start;
+            last = start;
+            if (start <= progress) {
+                index = count;
+            }
+            count++;
+        }
+        return "pathFirst=" + first + ",pathLast=" + last + ",linearIndex=" + index
+                + ",pathSorted=" + sorted;
     }
 
     private static double[] findCoordinates(Object value, int depth) {
