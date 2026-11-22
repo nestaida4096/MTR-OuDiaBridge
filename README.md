@@ -1,25 +1,28 @@
 # MTR-OuDiaBridge — MTR4
 
-An isolated Architectury multi-loader project. The existing MTR3 project remains at the repository root and is not modified by this subproject.
+Architectury multi-loader implementation for MTR4.
 
-## Initial target
+## Target
 - Minecraft 1.20.4
-- MTR4
+- MTR 4.0.5 or later within the 1.20.4 line
 - Fabric and MinecraftForge
 - Java 17
 - Architectury API 11.1.17
 
-## Layout
-- common: shared timetable, operation-state, and diagnostics logic
-- fabric: Fabric entry point and platform integrations
-- forge: Forge entry point and platform integrations
-
 ## Build
 Run from the repository root:
 ```powershell
-.\gradlew.bat -p mtr4 build
+.\gradlew.bat build
 ```
 
-This initial commit establishes the loader split and initialization skeleton only. MTR4 vehicle/timetable integration, nearby-train diagnostics, and door-departure behavior have not yet been ported. These features must be implemented against MTR4's `org.mtr.core.data.Vehicle` API and verified independently on both loaders.
+## Diagnostics command
+The permission-level-2 command `/oudiabridge trains [radius]` collects MTR4 vehicles from the current dimension. The default radius is 64 blocks and the maximum is 4096 blocks. Vehicle state is read through `Simulator.run` so that threaded MTR simulation is not accessed from the Minecraft server thread.
 
-Only Minecraft 1.20.4 is configured at this stage. Other MTR4 versions are not yet claimed as supported.
+The runtime bridge currently resolves MTR's private `Init.main` and `Main.simulators` fields reflectively. This is an isolated compatibility boundary; it must be checked against the exact MTR release being tested. Vehicles whose head position cannot be resolved are reported as omitted rather than being incorrectly treated as nearby.
+
+## Porting status
+- Architectury common/Fabric/Forge structure: present
+- MTR4 runtime access and nearby vehicle diagnostics: initial implementation
+- Persistent OuDia-to-Vehicle association: pending
+- MTR4 door/departure behavior: upstream code inspection indicates `Vehicle.startUp` closes doors and proceeds only when its private door cooldown reaches zero; no behavioral patch has been made without an observed MTR4 defect
+- Fabric/Forge build and in-game verification: pending
