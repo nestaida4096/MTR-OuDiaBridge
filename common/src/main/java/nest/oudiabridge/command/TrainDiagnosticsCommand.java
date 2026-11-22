@@ -60,7 +60,7 @@ public final class TrainDiagnosticsCommand {
     private static int reload(CommandSourceStack source) {
         try {
             OudiaTimetableRepository.ReloadResult result =
-                    OudiaTimetableRepository.reload(source.getServer().getServerDirectory());
+                    OudiaTimetableRepository.reload(source.getServer().getServerDirectory().toPath());
             source.sendSuccess(() -> Component.literal(
                     "Loaded " + result.loadedCount() + " OuDia timetable(s) from " + result.directory()), true);
             result.failures().forEach((file, message) ->
