@@ -17,6 +17,7 @@ import nest.oudiabridge.mtr4.OudiaTimetableRepository;
 import nest.oudiabridge.mtr4.OudiaVehicleBindingService;
 import nest.oudiabridge.mtr4.OudiaVehicleMatcher;
 import nest.oudiabridge.mtr4.OudiaTimeMatcher;
+import nest.oudiabridge.mtr4.OudiaDepotDepartureMatcher;
 import java.time.ZoneId;
 import nest.oudiabridge.parser.OudiaParser;
 
@@ -49,6 +50,12 @@ public final class TrainDiagnosticsCommand {
                         .requires(source -> source.hasPermission(2))
                         .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
                                 .executes(context -> diagnoseTimingCandidates(
+                                        context.getSource(),
+                                        LongArgumentType.getLong(context, "vehicleId")))))
+                .then(literal("depot-match")
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
+                                .executes(context -> diagnoseDepotDeparture(
                                         context.getSource(),
                                         LongArgumentType.getLong(context, "vehicleId")))))
                 .then(literal("bind")
@@ -268,6 +275,92 @@ public final class TrainDiagnosticsCommand {
                 }));
         source.sendSuccess(() -> Component.literal(
                 "Collecting MTR4 vehicle state for read-only OuDia time candidate ranking..."), false);
+        return 1;
+    }
+
+    /**
+     * Shows the MTR4 depot-exit estimate and OuDia first-station departure candidates.
+     * This command is diagnostic-only and never creates or changes a binding.
+     */
+    private static int diagnoseDepotDeparture(CommandSourceStack source, long vehicleId) {
+        final List<Simulator> simulators;
+        try {
+            simulators = Mtr4RuntimeAccess.getSimulators();
+        } catch (RuntimeException exception) {
+            source.sendFailure(Component.literal("MTR4 runtime access failed: " + exception.getMessage()));
+            return 0;
+        }
+        if (simulators.isEmpty()) {
+            source.sendFailure(Component.literal("MTR4 simulator is not initialized yet."));
+            return 0;
+        }
+
+        List<CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>>> futures = new ArrayList<>();
+        for (Simulator simulator : simulators) {
+            futures.add(Mtr4RuntimeAccess.collectVehicles(simulator));
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) ->
+                source.getServer().execute(() -> {
+                    if (error != null) {
+                        source.sendFailure(Component.literal("Failed to read MTR4 vehicles: " + rootMessage(error)));
+                        return;
+                    }
+
+                    Mtr4RuntimeAccess.VehicleSnapshot selected = null;
+                    for (CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>> future : futures) {
+                        for (Mtr4RuntimeAccess.VehicleSnapshot vehicle : future.join()) {
+                            if (vehicle.id() == vehicleId) {
+                                selected = vehicle;
+                                break;
+                            }
+                        }
+                        if (selected != null) break;
+                    }
+                    if (selected == null) {
+                        source.sendFailure(Component.literal("MTR4 vehicle not found: " + vehicleId));
+                        return;
+                    }
+
+                    final Mtr4RuntimeAccess.VehicleSnapshot vehicle = selected;
+                    ZoneId zone = ZoneId.systemDefault();
+                    source.sendSuccess(() -> Component.literal(
+                            "OuDia depot departure matching (read-only) | vehicle=" + vehicleId), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "Depot=" + emptyAsDash(vehicle.depotName())
+                                    + " | route=" + emptyAsDash(vehicle.route())
+                                    + " | onRoute=" + vehicle.onRoute()
+                                    + " | zone=" + zone), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "Estimated exit=" + (vehicle.estimatedDepartureMillis() > 0
+                                    ? java.time.Instant.ofEpochMilli(vehicle.estimatedDepartureMillis())
+                                            .atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss"))
+                                    : "unavailable")
+                                    + " | routeElapsed=" + Math.round(vehicle.routeElapsedMillis()) + "ms"
+                                    + " | currentDwell=" + vehicle.elapsedDwellMillis() + "ms"), false);
+
+                    var timetables = OudiaTimetableRepository.getAll();
+                    if (timetables.isEmpty()) {
+                        source.sendFailure(Component.literal("No OuDia timetables are loaded. Use /oudiabridge reload."));
+                        return;
+                    }
+
+                    timetables.forEach((id, timetable) -> {
+                        OudiaDepotDepartureMatcher.Result result =
+                                OudiaDepotDepartureMatcher.analyze(timetable, vehicle, zone);
+                        source.sendSuccess(() -> Component.literal(
+                                "Timetable " + id + " | depotCandidates=" + result.candidateCount()
+                                        + " | within±30s=" + result.matchCount()
+                                        + " | " + result.reason()), false);
+                        result.topCandidates().forEach(candidate -> source.sendSuccess(() ->
+                                Component.literal(String.format(java.util.Locale.ROOT,
+                                        "  #%d %s | depot=%s | scheduled=%s | estimated=%s | delta=%s | match=%s",
+                                        candidate.trainIndex(), candidate.direction(), candidate.depotStation(),
+                                        candidate.scheduledDepartureText(), candidate.estimatedDepartureText(),
+                                        candidate.deltaText(), candidate.withinTolerance())), false));
+                    });
+                }));
+        source.sendSuccess(() -> Component.literal(
+                "Collecting MTR4 vehicle state for depot departure diagnostics..."), false);
         return 1;
     }
 
@@ -547,17 +640,21 @@ public final class TrainDiagnosticsCommand {
         String matchedId = null;
         int matchedIndex = -1;
         int matches = 0;
+        ZoneId zone = ZoneId.systemDefault();
         for (var entry : OudiaTimetableRepository.getAll().entrySet()) {
-            OudiaVehicleMatcher.MatchResult result = OudiaVehicleMatcher.match(entry.getValue(), vehicle);
-            if (result.status() == OudiaVehicleMatcher.Status.MATCHED) {
+            OudiaDepotDepartureMatcher.MatchResult result =
+                    OudiaDepotDepartureMatcher.match(entry.getValue(), vehicle, zone);
+            if (result.status() == OudiaDepotDepartureMatcher.Status.MATCHED) {
                 matchedId = entry.getKey();
                 matchedIndex = result.trainIndex();
                 matches++;
+            } else if (result.status() == OudiaDepotDepartureMatcher.Status.AMBIGUOUS) {
+                matches += result.matchCount();
             }
         }
         if (matches == 1) {
             OudiaVehicleBindingService.bind(source.getLevel(), vehicle.id(), matchedId, matchedIndex);
-            return matchedId + "#" + matchedIndex;
+            return matchedId + "#" + matchedIndex + "(depot-time)";
         }
         if (matches > 1) {
             return "ambiguous(" + matches + ")";
