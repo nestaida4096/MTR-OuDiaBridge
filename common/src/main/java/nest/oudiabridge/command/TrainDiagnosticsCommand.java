@@ -89,11 +89,14 @@ public final class TrainDiagnosticsCommand {
                     }
                 }
 
+                final int matchedCount = matched;
+                final int totalCount = total;
+                final int unavailableCount = positionUnavailable;
                 source.sendSuccess(() -> Component.literal(
-                        "MTR4 vehicles within " + radius + " blocks: " + matched + " (active in dimension: " + total + ")"), false);
-                if (positionUnavailable > 0) {
+                        "MTR4 vehicles within " + radius + " blocks: " + matchedCount + " (active in dimension: " + totalCount + ")"), false);
+                if (unavailableCount > 0) {
                     source.sendSuccess(() -> Component.literal(
-                            "Position unavailable for " + positionUnavailable + " vehicle(s); omitted from radius results."), false);
+                            "Position unavailable for " + unavailableCount + " vehicle(s); omitted from radius results."), false);
                 }
                 lines.forEach(line -> source.sendSuccess(() -> Component.literal(line), false));
                 if (matched == 0) {
