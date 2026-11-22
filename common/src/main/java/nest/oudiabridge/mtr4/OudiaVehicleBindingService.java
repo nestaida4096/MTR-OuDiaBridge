@@ -20,6 +20,10 @@ public final class OudiaVehicleBindingService {
         return result;
     }
 
+    public static void bind(ServerLevel level, long vehicleId, String timetableId, int trainIndex) {
+        OudiaBridgeSavedData.get(level).bind(vehicleId, timetableId, trainIndex);
+    }
+
     public static OudiaBridgeSavedData.VehicleBinding getBinding(ServerLevel level, long vehicleId) {
         return OudiaBridgeSavedData.get(level).getBinding(vehicleId);
     }
