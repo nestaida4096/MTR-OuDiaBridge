@@ -26,7 +26,7 @@ allprojects {
         maven { url = "https://maven.minecraftforge.net/" }
     }
     java {
-        toolchain { languageVersion = JavaLanguageVersion.of(rootProject.java_version) }
+        toolchain { languageVersion = JavaLanguageVersion.of(rootProject.java_version.toInteger()) }
         withSourcesJar()
     }
     tasks.withType(JavaCompile).configureEach {
