@@ -51,13 +51,13 @@ public final class Mtr4RuntimeAccess {
             ObjectArraySet<Vehicle> vehicles =
                     ((SidingAccessor) (Object) siding).getVehicles();
             for (Vehicle vehicle : vehicles) {
-                result.add(snapshot(simulator, vehicle));
+                result.add(snapshot(simulator, siding, vehicle));
             }
         }
         return result;
     }
 
-    private static VehicleSnapshot snapshot(Simulator simulator, Vehicle vehicle) {
+    private static VehicleSnapshot snapshot(Simulator simulator, Siding siding, Vehicle vehicle) {
         String dimension = simulator.dimension;
         long simulationMillis = simulator.getCurrentMillis();
         long id = vehicle.getId();
@@ -70,6 +70,11 @@ public final class Mtr4RuntimeAccess {
         double speed = vehicleState.getSpeed();
         double railProgress = vehicleState.getRailProgress();
         double distanceToNextAtoStop = findDistanceToNextAtoStop(vehicleState, extra, railProgress);
+        long elapsedDwellMillis = Math.max(0, vehicleState.getElapsedDwellTime());
+        double routeElapsedMillis = siding.getTimeAlongRoute(railProgress);
+        long estimatedDepartureMillis = onRoute && Double.isFinite(routeElapsedMillis) && routeElapsedMillis >= 0
+                ? simulationMillis - Math.round(routeElapsedMillis + elapsedDwellMillis)
+                : -1L;
 
         Vector position = vehicle.getHeadPosition();
         String positionStatus = position == null
@@ -82,7 +87,8 @@ public final class Mtr4RuntimeAccess {
                 position == null ? Double.NaN : position.x(),
                 position == null ? Double.NaN : position.y(),
                 position == null ? Double.NaN : position.z(),
-                positionStatus, simulationMillis, speed, railProgress, distanceToNextAtoStop);
+                positionStatus, simulationMillis, speed, railProgress, distanceToNextAtoStop,
+                siding.getDepotName(), estimatedDepartureMillis, routeElapsedMillis, elapsedDwellMillis);
     }
 
     private static double findDistanceToNextAtoStop(VehicleSchemaAccessor vehicle,
@@ -131,7 +137,9 @@ public final class Mtr4RuntimeAccess {
                                   String nextStation, String destination,
                                   double x, double y, double z, String positionStatus,
                                   long simulationMillis, double speedMetersPerMillisecond,
-                                  double railProgress, double distanceToNextAtoStop) {
+                                  double railProgress, double distanceToNextAtoStop,
+                                  String depotName, long estimatedDepartureMillis,
+                                  double routeElapsedMillis, long elapsedDwellMillis) {
         public boolean hasPosition() {
             return Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z);
         }
