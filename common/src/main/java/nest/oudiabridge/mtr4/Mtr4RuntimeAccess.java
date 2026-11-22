@@ -10,7 +10,6 @@ import org.mtr.core.Main;
 import org.mtr.core.data.PathData;
 import org.mtr.core.data.Siding;
 import org.mtr.core.data.Vehicle;
-import org.mtr.core.data.Vehicle.PositionAndTiltAngle;
 import org.mtr.core.data.VehicleExtraData;
 import org.mtr.core.simulation.Simulator;
 import org.mtr.core.tool.Vector;
@@ -72,7 +71,7 @@ public final class Mtr4RuntimeAccess {
         double railProgress = vehicleState.getRailProgress();
         double distanceToNextAtoStop = findDistanceToNextAtoStop(vehicleState, extra, railProgress);
 
-        PositionAndTiltAngle head = vehicle.getHeadPositionAndTiltAngle();
+        var head = vehicle.getHeadPositionAndTiltAngle();
         Vector position = head == null ? null : head.position();
         String positionStatus = position == null
                 ? "head-null(" + describePath(extra.immutablePath, railProgress) + ",onRoute=" + onRoute + ")"
