@@ -362,9 +362,9 @@ public final class TrainDiagnosticsCommand {
                                         + " | " + result.reason()), false);
                         result.topCandidates().forEach(candidate -> source.sendSuccess(() ->
                                 Component.literal(String.format(java.util.Locale.ROOT,
-                                        "  #%d %s | depot=%s | scheduled=%s | estimated=%s | delta=%s | match=%s",
+                                        "  #%d %s | depot=%s | scheduled=%s | departureRef=%s | delta=%s | match=%s",
                                         candidate.trainIndex(), candidate.direction(), candidate.depotStation(),
-                                        candidate.scheduledDepartureText(), candidate.estimatedDepartureText(),
+                                        candidate.scheduledDepartureText(), candidate.departureReferenceText(),
                                         candidate.deltaText(), candidate.withinTolerance())), false));
                     });
                 }));
