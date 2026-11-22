@@ -14,4 +14,7 @@ public interface VehicleSchemaAccessor {
 
     @Accessor(value = "nextStoppingIndexAto", remap = false)
     long getNextStoppingIndexAto();
+
+    @Accessor(value = "elapsedDwellTime", remap = false)
+    long getElapsedDwellTime();
 }
