@@ -331,10 +331,16 @@ public final class TrainDiagnosticsCommand {
                                     + " | onRoute=" + vehicle.onRoute()
                                     + " | zone=" + zone), false);
                     source.sendSuccess(() -> Component.literal(
-                            "Estimated exit=" + (vehicle.estimatedDepartureMillis() > 0
-                                    ? java.time.Instant.ofEpochMilli(vehicle.estimatedDepartureMillis())
+                            "Departure reference=" + (vehicle.departureReferenceMillis() > 0
+                                    ? java.time.Instant.ofEpochMilli(vehicle.departureReferenceMillis())
                                             .atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss"))
                                     : "unavailable")
+                                    + " | source=" + vehicle.departureReferenceSource()
+                                    + " | recorded=" + vehicle.recordedSidingDepartureMillis()
+                                    + " | routeEstimate=" + (vehicle.estimatedDepartureMillis() > 0
+                                            ? java.time.Instant.ofEpochMilli(vehicle.estimatedDepartureMillis())
+                                                    .atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss"))
+                                            : "unavailable")
                                     + " | routeElapsed=" + (Double.isFinite(vehicle.routeElapsedMillis())
                                             ? Math.round(vehicle.routeElapsedMillis()) + "ms" : "unavailable")
                                     + " | currentDwell=" + vehicle.elapsedDwellMillis() + "ms"), false);
