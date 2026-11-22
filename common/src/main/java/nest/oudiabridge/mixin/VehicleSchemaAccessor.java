@@ -17,4 +17,7 @@ public interface VehicleSchemaAccessor {
 
     @Accessor(value = "elapsedDwellTime", remap = false)
     long getElapsedDwellTime();
+
+    @Accessor(value = "sidingDepartureTime", remap = false)
+    long getSidingDepartureTime();
 }
