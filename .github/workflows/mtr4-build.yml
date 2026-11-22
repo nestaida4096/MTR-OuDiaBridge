@@ -38,4 +38,4 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Build Fabric and Forge
-        run: ./gradlew build --no-daemon
+        run: bash ./gradlew build --no-daemon
