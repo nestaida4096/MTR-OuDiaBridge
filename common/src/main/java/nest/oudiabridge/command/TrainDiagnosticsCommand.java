@@ -54,6 +54,10 @@ public final class TrainDiagnosticsCommand {
                 .then(literal("timing")
                         .requires(source -> source.hasPermission(2))
                         .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
+                                .executes(context -> analyzeTiming(
+                                        context.getSource(),
+                                        LongArgumentType.getLong(context, "vehicleId"),
+                                        null))
                                 .then(argument("currentTime", StringArgumentType.word())
                                         .executes(context -> analyzeTiming(
                                                 context.getSource(),
@@ -129,11 +133,13 @@ public final class TrainDiagnosticsCommand {
      * This is analysis-only: it never writes vehicle speed, rail progress, or MTR internals.
      */
     private static int analyzeTiming(CommandSourceStack source, long vehicleId, String currentTime) {
-        try {
-            OudiaScheduleAnalyzer.parseTime(currentTime);
-        } catch (IllegalArgumentException exception) {
-            source.sendFailure(Component.literal("Invalid time. Use HHmm, HHmmss, HH:mm, or HH:mm:ss."));
-            return 0;
+        if (currentTime != null) {
+            try {
+                OudiaScheduleAnalyzer.parseTime(currentTime);
+            } catch (IllegalArgumentException exception) {
+                source.sendFailure(Component.literal("Invalid time. Use HHmm, HHmmss, HH:mm, or HH:mm:ss."));
+                return 0;
+            }
         }
 
         final List<Object> simulators;
@@ -191,8 +197,23 @@ public final class TrainDiagnosticsCommand {
                     return;
                 }
 
+                String effectiveTime = currentTime;
+                String clockSource = "manual input";
+                if (effectiveTime == null) {
+                    if (selected.simulationMillis() <= 0) {
+                        source.sendFailure(Component.literal(
+                                "MTR4 simulator clock is unavailable. Supply an explicit time as HH:mm:ss."));
+                        return;
+                    }
+                    java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+                    effectiveTime = java.time.Instant.ofEpochMilli(selected.simulationMillis())
+                            .atZone(zone).toLocalTime()
+                            .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
+                    clockSource = "MTR4 simulator clock (" + zone + ")";
+                }
+
                 OudiaScheduleAnalyzer.Analysis analysis = OudiaScheduleAnalyzer.analyze(
-                        timetable, binding.trainIndex(), selected, currentTime);
+                        timetable, binding.trainIndex(), selected, effectiveTime);
                 if (!analysis.matched()) {
                     source.sendFailure(Component.literal("Schedule analysis unavailable: " + analysis.reason()));
                     return;
@@ -206,8 +227,9 @@ public final class TrainDiagnosticsCommand {
                 source.sendSuccess(() -> Component.literal("Scheduled departure: "
                         + analysis.scheduledDepartureText() + " | scheduled arrival: "
                         + analysis.scheduledArrivalText()), false);
-                source.sendSuccess(() -> Component.literal("Supplied clock: " + currentTime
-                        + " | aligned clock: " + analysis.alignedClockText()
+                source.sendSuccess(() -> Component.literal("Clock: " + effectiveTime
+                        + " | source: " + clockSource
+                        + " | aligned: " + analysis.alignedClockText()
                         + " | deviation: " + analysis.deviationText()), false);
                 source.sendSuccess(() -> Component.literal("Next arrival: "
                         + analysis.remainingText()), false);
