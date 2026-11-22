@@ -10,8 +10,9 @@ public class OudiaParser {
         List<TrainData> trains = new ArrayList<>();
         String routeName = "";
 
-        // 文字コード指定（.oud2 は Shift_JIS または UTF-8）
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"))) {
+        // .oud2 files are commonly UTF-8 or Windows-31J (CP932).
+        // Decode strictly so Shift_JIS files are not silently corrupted by UTF-8 replacement characters.
+        try (BufferedReader reader = new BufferedReader(new StringReader(readText(file)))) {
             String line;
             String currentSection = "";
             String currentDirection = ""; // "Kudari" or "Nobori"
@@ -115,6 +116,26 @@ public class OudiaParser {
         }
 
         return new ParseResult(routeName, cleanStations, trains);
+    }
+
+    private static String readText(File file) throws IOException {
+        byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
+        java.nio.charset.CharsetDecoder utf8 = java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+        try {
+            String text = utf8.decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+            return text.startsWith("\uFEFF") ? text.substring(1) : text;
+        } catch (java.nio.charset.CharacterCodingException ignored) {
+            java.nio.charset.CharsetDecoder cp932 = java.nio.charset.Charset.forName("windows-31j").newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+            try {
+                return cp932.decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+            } catch (java.nio.charset.CharacterCodingException exception) {
+                throw new IOException("OuDia file is neither valid UTF-8 nor Windows-31J: " + file.getName(), exception);
+            }
+        }
     }
 
     private static void parseTimetable(String rawData, TrainData train, List<RawStation> rawStations) {
