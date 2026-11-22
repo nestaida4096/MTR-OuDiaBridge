@@ -16,8 +16,11 @@ public final class OudiaBridgeSavedData extends SavedData {
 
     public static OudiaBridgeSavedData get(ServerLevel level) {
         return level.getDataStorage().computeIfAbsent(
-                OudiaBridgeSavedData::load,
-                OudiaBridgeSavedData::new,
+                new Factory<>(
+                        OudiaBridgeSavedData::new,
+                        OudiaBridgeSavedData::load,
+                        null
+                ),
                 DATA_NAME
         );
     }
