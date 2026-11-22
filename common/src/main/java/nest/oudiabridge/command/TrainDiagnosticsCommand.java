@@ -37,6 +37,12 @@ public final class TrainDiagnosticsCommand {
                 .then(literal("timetables")
                         .requires(source -> source.hasPermission(2))
                         .executes(context -> listTimetables(context.getSource())))
+                .then(literal("match")
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
+                                .executes(context -> diagnoseMatch(
+                                        context.getSource(),
+                                        LongArgumentType.getLong(context, "vehicleId")))))
                 .then(literal("bind")
                         .requires(source -> source.hasPermission(2))
                         .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
@@ -99,6 +105,82 @@ public final class TrainDiagnosticsCommand {
                         + " | trains=" + timetable.trains.size()
                         + " | stations=" + timetable.stations.size()), false));
         return timetables.size();
+    }
+
+    /**
+     * Prints why a vehicle does or does not match each loaded timetable.
+     * This command is diagnostic-only and never creates or changes a binding.
+     */
+    private static int diagnoseMatch(CommandSourceStack source, long vehicleId) {
+        final List<Simulator> simulators;
+        try {
+            simulators = Mtr4RuntimeAccess.getSimulators();
+        } catch (RuntimeException exception) {
+            source.sendFailure(Component.literal("MTR4 runtime access failed: " + exception.getMessage()));
+            return 0;
+        }
+        if (simulators.isEmpty()) {
+            source.sendFailure(Component.literal("MTR4 simulator is not initialized yet."));
+            return 0;
+        }
+
+        List<CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>>> futures = new ArrayList<>();
+        for (Simulator simulator : simulators) {
+            futures.add(Mtr4RuntimeAccess.collectVehicles(simulator));
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) ->
+                source.getServer().execute(() -> {
+                    if (error != null) {
+                        source.sendFailure(Component.literal("Failed to read MTR4 vehicles: " + rootMessage(error)));
+                        return;
+                    }
+
+                    Mtr4RuntimeAccess.VehicleSnapshot selected = null;
+                    for (CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>> future : futures) {
+                        for (Mtr4RuntimeAccess.VehicleSnapshot vehicle : future.join()) {
+                            if (vehicle.id() == vehicleId) {
+                                selected = vehicle;
+                                break;
+                            }
+                        }
+                        if (selected != null) break;
+                    }
+                    if (selected == null) {
+                        source.sendFailure(Component.literal("MTR4 vehicle not found: " + vehicleId));
+                        return;
+                    }
+
+                    source.sendSuccess(() -> Component.literal("OuDia match diagnostics (read-only) | vehicle="
+                            + vehicleId), false);
+                    source.sendSuccess(() -> Component.literal("MTR4 route=" + emptyAsDash(selected.route())
+                            + " | current=" + emptyAsDash(selected.station())
+                            + " | next=" + emptyAsDash(selected.nextStation())), false);
+
+                    var timetables = OudiaTimetableRepository.getAll();
+                    if (timetables.isEmpty()) {
+                        source.sendFailure(Component.literal("No OuDia timetables are loaded. Use /oudiabridge reload."));
+                        return;
+                    }
+                    timetables.forEach((id, timetable) -> {
+                        OudiaVehicleMatcher.Diagnostic diagnostic =
+                                OudiaVehicleMatcher.diagnose(timetable, selected);
+                        source.sendSuccess(() -> Component.literal("Timetable " + id
+                                + " | route=" + emptyAsDash(timetable.routeName)
+                                + " | routeMatch=" + diagnostic.routeMatches()
+                                + " | normalizedRoute=" + diagnostic.normalizedTimetableRoute()
+                                + " vs " + diagnostic.normalizedVehicleRoute()), false);
+                        source.sendSuccess(() -> Component.literal("  trains=" + diagnostic.trainCount()
+                                + " | current-only=" + diagnostic.currentOnlyCount()
+                                + " | next-only=" + diagnostic.nextOnlyCount()
+                                + " | consecutive-pair=" + diagnostic.pairMatchCount()
+                                + " | candidateIndices=" + diagnostic.pairTrainIndices()), false);
+                        source.sendSuccess(() -> Component.literal("  directions="
+                                + diagnostic.directionCounts() + " | " + diagnostic.reason()), false);
+                    });
+                }));
+        source.sendSuccess(() -> Component.literal(
+                "Collecting MTR4 vehicle state for read-only OuDia match diagnostics..."), false);
+        return 1;
     }
 
     private static int bind(CommandSourceStack source, long vehicleId, String timetableId, int trainIndex) {
