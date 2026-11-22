@@ -71,10 +71,9 @@ public final class Mtr4RuntimeAccess {
         double railProgress = vehicleState.getRailProgress();
         double distanceToNextAtoStop = findDistanceToNextAtoStop(vehicleState, extra, railProgress);
 
-        var head = vehicle.getHeadPositionAndTiltAngle();
-        Vector position = head == null ? null : head.position();
+        Vector position = vehicle.getHeadPosition();
         String positionStatus = position == null
-                ? "head-null(" + describePath(extra.immutablePath, railProgress) + ",onRoute=" + onRoute + ")"
+                ? "head-position-null(" + describePath(extra.immutablePath, railProgress) + ",onRoute=" + onRoute + ")"
                 : "ok";
 
         return new VehicleSnapshot(id, dimension, onRoute, moving, departureIndex,
