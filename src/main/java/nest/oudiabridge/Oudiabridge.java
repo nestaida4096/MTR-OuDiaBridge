@@ -1,6 +1,7 @@
 package nest.oudiabridge;
 
 import com.mojang.brigadier.CommandDispatcher;
+import nest.oudiabridge.command.TrainDiagnosticsCommand;
 import nest.oudiabridge.sync.OudiaSavedState;
 import nest.oudiabridge.sync.OudiaServerSpeedManager;
 import nest.oudiabridge.sync.OudiaWorldSyncState;
@@ -113,9 +114,10 @@ public class Oudiabridge implements ModInitializer {
         System.out.println("Starting MTR-OuDiaSecondV2-Bridge [Main]");
         OudiaServerSpeedManager.register();
 
-        // コマンド登録 (/oudiabridge log)
+        // コマンド登録
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             registerCommands(dispatcher);
+            TrainDiagnosticsCommand.register(dispatcher);
         });
 
         // サーバー起動完了時
