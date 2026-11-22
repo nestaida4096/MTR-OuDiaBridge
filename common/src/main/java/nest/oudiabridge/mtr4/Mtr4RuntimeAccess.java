@@ -205,7 +205,12 @@ public final class Mtr4RuntimeAccess {
 
     private static VehicleSnapshot snapshot(Object simulator, Object vehicle) throws ReflectiveOperationException {
         String dimension = String.valueOf(readField(simulator.getClass(), simulator, "dimension"));
-        long id = number(invokeOptional(vehicle, "getId"), -1L);
+        Object rawId = invokeOptional(vehicle, "getId");
+        if (!(rawId instanceof Number idNumber)) {
+            throw new NoSuchMethodException(vehicle.getClass().getName()
+                    + ".getId() did not return a numeric vehicle ID");
+        }
+        long id = idNumber.longValue();
         boolean onRoute = booleanValue(invokeOptional(vehicle, "getIsOnRoute"));
         boolean moving = booleanValue(invokeOptional(vehicle, "isMoving"));
         long departureIndex = number(invokeOptional(vehicle, "getDepartureIndex"), -1L);
