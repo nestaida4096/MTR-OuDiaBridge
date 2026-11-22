@@ -335,8 +335,11 @@ public final class TrainDiagnosticsCommand {
                                     ? java.time.Instant.ofEpochMilli(vehicle.estimatedDepartureMillis())
                                             .atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss"))
                                     : "unavailable")
-                                    + " | routeElapsed=" + Math.round(vehicle.routeElapsedMillis()) + "ms"
+                                    + " | routeElapsed=" + (Double.isFinite(vehicle.routeElapsedMillis())
+                                            ? Math.round(vehicle.routeElapsedMillis()) + "ms" : "unavailable")
                                     + " | currentDwell=" + vehicle.elapsedDwellMillis() + "ms"), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "Estimate basis: MTR4 path running-time profile + recorded dwell times; extra signal/block waits are not separately measured."), false);
 
                     var timetables = OudiaTimetableRepository.getAll();
                     if (timetables.isEmpty()) {
