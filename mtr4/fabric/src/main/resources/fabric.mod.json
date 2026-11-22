@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "oudiabridge",
+  "version": "${version}",
+  "name": "MTR OuDiaBridge",
+  "description": "OuDia timetable integration for Minecraft Transit Railway 4.",
+  "authors": ["nestaida4096"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": { "main": ["nest.oudiabridge.fabric.OudiaBridgeFabric"] },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~1.20.4",
+    "java": ">=17",
+    "architectury": ">=11.1.17"
+  }
+}
