@@ -46,7 +46,7 @@ public final class TrainDiagnosticsCommand {
                                                         IntegerArgumentType.getInteger(context, "trainIndex")))))))
                 .then(literal("unbind")
                         .requires(source -> source.hasPermission(2))
-                        .then(argument("vehicleId", LongArgumentType.longArg(0))
+                        .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
                                 .executes(context -> unbind(context.getSource(),
                                         LongArgumentType.getLong(context, "vehicleId")))))
                 .then(literal("trains")
