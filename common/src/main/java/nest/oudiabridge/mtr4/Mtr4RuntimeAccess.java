@@ -205,6 +205,7 @@ public final class Mtr4RuntimeAccess {
 
     private static VehicleSnapshot snapshot(Object simulator, Object vehicle) throws ReflectiveOperationException {
         String dimension = String.valueOf(readField(simulator.getClass(), simulator, "dimension"));
+        long simulationMillis = number(invokeOptional(simulator, "getCurrentMillis"), -1L);
         Object rawId = invokeOptional(vehicle, "getId");
         if (!(rawId instanceof Number idNumber)) {
             throw new NoSuchMethodException(vehicle.getClass().getName()
@@ -242,7 +243,7 @@ public final class Mtr4RuntimeAccess {
                 coordinates == null ? Double.NaN : coordinates[0],
                 coordinates == null ? Double.NaN : coordinates[1],
                 coordinates == null ? Double.NaN : coordinates[2],
-                positionStatus);
+                positionStatus, simulationMillis);
     }
 
     private static String describePathRange(Object path, double progress) {
@@ -370,7 +371,8 @@ public final class Mtr4RuntimeAccess {
     public record VehicleSnapshot(long id, String dimension, boolean onRoute, boolean moving,
                                   long departureIndex, String route, String station,
                                   String nextStation, String destination,
-                                  double x, double y, double z, String positionStatus) {
+                                  double x, double y, double z, String positionStatus,
+                                  long simulationMillis) {
         public boolean hasPosition() {
             return Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z);
         }
