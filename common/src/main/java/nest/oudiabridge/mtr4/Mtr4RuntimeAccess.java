@@ -218,8 +218,8 @@ public final class Mtr4RuntimeAccess {
 
         Object extra = readField(vehicle.getClass(), vehicle, "vehicleExtraData");
         double speedMetersPerMillisecond = doubleNumber(tryReadField(vehicle, "speed"));
-        double railProgress = doubleNumber(tryReadField(vehicle, "railProgress"));
-        double distanceToNextAtoStop = findDistanceToNextAtoStop(vehicle, extra, railProgress);
+        double railProgressValue = doubleNumber(tryReadField(vehicle, "railProgress"));
+        double distanceToNextAtoStop = findDistanceToNextAtoStop(vehicle, extra, railProgressValue);
         String route = stringValue(invokeOptional(extra, "getThisRouteName"));
         String station = stringValue(invokeOptional(extra, "getThisStationName"));
         String nextStation = stringValue(invokeOptional(extra, "getNextStationName"));
@@ -247,7 +247,7 @@ public final class Mtr4RuntimeAccess {
                 coordinates == null ? Double.NaN : coordinates[1],
                 coordinates == null ? Double.NaN : coordinates[2],
                 positionStatus, simulationMillis, speedMetersPerMillisecond,
-                railProgress, distanceToNextAtoStop);
+                railProgressValue, distanceToNextAtoStop);
     }
 
     /**
