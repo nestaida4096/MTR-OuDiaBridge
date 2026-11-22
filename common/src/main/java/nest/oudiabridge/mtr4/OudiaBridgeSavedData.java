@@ -30,8 +30,10 @@ public final class OudiaBridgeSavedData extends SavedData {
         if (timetableId == null || timetableId.isBlank() || trainIndex < 0) {
             throw new IllegalArgumentException("Invalid OuDia vehicle binding");
         }
-        bindings.put(vehicleId, new VehicleBinding(timetableId, trainIndex));
-        setDirty();
+        VehicleBinding next = new VehicleBinding(timetableId, trainIndex);
+        if (!next.equals(bindings.put(vehicleId, next))) {
+            setDirty();
+        }
     }
 
     public void unbind(long vehicleId) {
