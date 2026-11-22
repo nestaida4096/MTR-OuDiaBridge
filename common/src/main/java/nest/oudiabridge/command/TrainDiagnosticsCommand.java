@@ -2,6 +2,9 @@ package nest.oudiabridge.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.LongArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -10,6 +13,7 @@ import nest.oudiabridge.mtr4.Mtr4RuntimeAccess;
 import nest.oudiabridge.mtr4.OudiaTimetableRepository;
 import nest.oudiabridge.mtr4.OudiaVehicleBindingService;
 import nest.oudiabridge.mtr4.OudiaVehicleMatcher;
+import nest.oudiabridge.parser.OudiaParser;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +31,24 @@ public final class TrainDiagnosticsCommand {
                 .then(literal("reload")
                         .requires(source -> source.hasPermission(2))
                         .executes(context -> reload(context.getSource())))
+                .then(literal("timetables")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(context -> listTimetables(context.getSource())))
+                .then(literal("bind")
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("vehicleId", LongArgumentType.longArg(0))
+                                .then(argument("timetableId", StringArgumentType.string())
+                                        .then(argument("trainIndex", IntegerArgumentType.integer(0))
+                                                .executes(context -> bind(
+                                                        context.getSource(),
+                                                        LongArgumentType.getLong(context, "vehicleId"),
+                                                        StringArgumentType.getString(context, "timetableId"),
+                                                        IntegerArgumentType.getInteger(context, "trainIndex")))))))
+                .then(literal("unbind")
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("vehicleId", LongArgumentType.longArg(0))
+                                .executes(context -> unbind(context.getSource(),
+                                        LongArgumentType.getLong(context, "vehicleId")))))
                 .then(literal("trains")
                         .requires(source -> source.hasPermission(2))
                         .executes(context -> execute(context.getSource(), 64))
@@ -48,6 +70,44 @@ public final class TrainDiagnosticsCommand {
             source.sendFailure(Component.literal("OuDia timetable reload failed: " + exception.getMessage()));
             return 0;
         }
+    }
+
+    private static int listTimetables(CommandSourceStack source) {
+        var timetables = OudiaTimetableRepository.getAll();
+        if (timetables.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("No OuDia timetables are loaded. Use /oudiabridge reload."), false);
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Loaded OuDia timetables: " + timetables.size()), false);
+        timetables.forEach((id, timetable) -> source.sendSuccess(() -> Component.literal(
+                id + " | route=" + emptyAsDash(timetable.routeName)
+                        + " | trains=" + timetable.trains.size()
+                        + " | stations=" + timetable.stations.size()), false));
+        return timetables.size();
+    }
+
+    private static int bind(CommandSourceStack source, long vehicleId, String timetableId, int trainIndex) {
+        OudiaParser.ParseResult timetable = OudiaTimetableRepository.getAll().get(timetableId);
+        if (timetable == null) {
+            source.sendFailure(Component.literal("Unknown timetable ID: " + timetableId
+                    + ". Use /oudiabridge timetables to list loaded IDs."));
+            return 0;
+        }
+        if (trainIndex >= timetable.trains.size()) {
+            source.sendFailure(Component.literal("Train index is out of range. Valid range: 0-"
+                    + (timetable.trains.size() - 1) + " (zero-based)."));
+            return 0;
+        }
+        OudiaVehicleBindingService.bind(source.getLevel(), vehicleId, timetableId, trainIndex);
+        source.sendSuccess(() -> Component.literal("Bound MTR4 vehicle " + vehicleId
+                + " to " + timetableId + "#" + trainIndex + "."), true);
+        return 1;
+    }
+
+    private static int unbind(CommandSourceStack source, long vehicleId) {
+        OudiaVehicleBindingService.unbind(source.getLevel(), vehicleId);
+        source.sendSuccess(() -> Component.literal("Removed OuDia binding for MTR4 vehicle " + vehicleId + "."), true);
+        return 1;
     }
 
     private static int execute(CommandSourceStack source, double radius) {
@@ -131,6 +191,16 @@ public final class TrainDiagnosticsCommand {
     }
 
     private static String matchOuDia(CommandSourceStack source, Mtr4RuntimeAccess.VehicleSnapshot vehicle) {
+        var existing = OudiaVehicleBindingService.getBinding(source.getLevel(), vehicle.id());
+        if (existing != null) {
+            OudiaParser.ParseResult storedTimetable =
+                    OudiaTimetableRepository.getAll().get(existing.timetableId());
+            if (storedTimetable != null && existing.trainIndex() < storedTimetable.trains.size()) {
+                return existing.timetableId() + "#" + existing.trainIndex() + "(stored)";
+            }
+            return "invalid-stored(" + existing.timetableId() + "#" + existing.trainIndex() + ")";
+        }
+
         String matchedId = null;
         int matchedIndex = -1;
         int matches = 0;
@@ -149,8 +219,7 @@ public final class TrainDiagnosticsCommand {
         if (matches > 1) {
             return "ambiguous(" + matches + ")";
         }
-        var existing = OudiaVehicleBindingService.getBinding(source.getLevel(), vehicle.id());
-        return existing == null ? "unmatched" : existing.timetableId() + "#" + existing.trainIndex() + "(stored)";
+        return "unmatched";
     }
 
     private static String emptyAsDash(String value) {
