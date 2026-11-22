@@ -149,12 +149,13 @@ public final class TrainDiagnosticsCommand {
                         source.sendFailure(Component.literal("MTR4 vehicle not found: " + vehicleId));
                         return;
                     }
+                    final Mtr4RuntimeAccess.VehicleSnapshot vehicleSnapshot = selected;
 
                     source.sendSuccess(() -> Component.literal("OuDia match diagnostics (read-only) | vehicle="
                             + vehicleId), false);
-                    source.sendSuccess(() -> Component.literal("MTR4 route=" + emptyAsDash(selected.route())
-                            + " | current=" + emptyAsDash(selected.station())
-                            + " | next=" + emptyAsDash(selected.nextStation())), false);
+                    source.sendSuccess(() -> Component.literal("MTR4 route=" + emptyAsDash(vehicleSnapshot.route())
+                            + " | current=" + emptyAsDash(vehicleSnapshot.station())
+                            + " | next=" + emptyAsDash(vehicleSnapshot.nextStation())), false);
 
                     var timetables = OudiaTimetableRepository.getAll();
                     if (timetables.isEmpty()) {
@@ -163,7 +164,7 @@ public final class TrainDiagnosticsCommand {
                     }
                     timetables.forEach((id, timetable) -> {
                         OudiaVehicleMatcher.Diagnostic diagnostic =
-                                OudiaVehicleMatcher.diagnose(timetable, selected);
+                                OudiaVehicleMatcher.diagnose(timetable, vehicleSnapshot);
                         source.sendSuccess(() -> Component.literal("Timetable " + id
                                 + " | route=" + emptyAsDash(timetable.routeName)
                                 + " | routeMatch=" + diagnostic.routeMatches()
