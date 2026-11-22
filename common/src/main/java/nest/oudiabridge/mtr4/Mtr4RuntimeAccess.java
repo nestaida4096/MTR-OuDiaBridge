@@ -1,7 +1,7 @@
 package nest.oudiabridge.mtr4;
 
-import it.unimi.dsi.fastutil.objects.ObjectArraySet;
-import it.unimi.dsi.fastutil.objects.ObjectImmutableList;
+import org.mtr.libraries.it.unimi.dsi.fastutil.objects.ObjectArraySet;
+import org.mtr.libraries.it.unimi.dsi.fastutil.objects.ObjectImmutableList;
 import nest.oudiabridge.mixin.InitAccessor;
 import nest.oudiabridge.mixin.MainAccessor;
 import nest.oudiabridge.mixin.SidingAccessor;
