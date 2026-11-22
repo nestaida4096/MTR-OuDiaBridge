@@ -39,6 +39,11 @@ public final class OudiaVehicleMatcher {
         }
 
         int bestScore = candidates.stream().mapToInt(Candidate::score).max().orElse(0);
+        // Do not persist an automatic binding based on a single station. A unique
+        // current-only or next-only match is not enough to distinguish repeated services.
+        if (bestScore < 3) {
+            return MatchResult.noMatch("Insufficient evidence: both current and next stations must match consecutively");
+        }
         List<Candidate> best = candidates.stream().filter(candidate -> candidate.score == bestScore).toList();
         if (best.size() != 1) {
             return MatchResult.ambiguous(best.size(), bestScore);
