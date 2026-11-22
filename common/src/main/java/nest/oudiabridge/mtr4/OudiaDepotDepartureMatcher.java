@@ -46,8 +46,8 @@ public final class OudiaDepotDepartureMatcher {
         }
 
         String depotName = normalize(vehicle.depotName());
-        long estimatedMillis = vehicle.departureReferenceMillis();
-        String estimatedText = DATE_TIME_FORMAT.format(Instant.ofEpochMilli(estimatedMillis).atZone(zoneId));
+        long departureReferenceMillis = vehicle.departureReferenceMillis();
+        String departureReferenceText = DATE_TIME_FORMAT.format(Instant.ofEpochMilli(departureReferenceMillis).atZone(zoneId));
         List<Candidate> candidates = new ArrayList<>();
 
         for (int trainIndex = 0; trainIndex < timetable.trains.size(); trainIndex++) {
@@ -62,12 +62,12 @@ public final class OudiaDepotDepartureMatcher {
                 continue;
             }
 
-            long scheduledMillis = nearestDailyOccurrence(scheduledSeconds, estimatedMillis, zoneId);
-            long deltaMillis = estimatedMillis - scheduledMillis;
+            long scheduledMillis = nearestDailyOccurrence(scheduledSeconds, departureReferenceMillis, zoneId);
+            long deltaMillis = departureReferenceMillis - scheduledMillis;
             candidates.add(new Candidate(trainIndex,
                     train.direction == null || train.direction.isBlank() ? "(empty)" : train.direction,
                     firstStop.stationName(), formatScheduleTime(scheduledSeconds),
-                    estimatedText, deltaMillis, Math.abs(deltaMillis) <= TOLERANCE_MILLIS));
+                    departureReferenceText, deltaMillis, Math.abs(deltaMillis) <= TOLERANCE_MILLIS));
         }
 
         candidates.sort(Comparator
@@ -86,7 +86,7 @@ public final class OudiaDepotDepartureMatcher {
             reason = "Multiple trains match the depot and ±30-second departure window";
         }
 
-        return new Result(true, vehicle.depotName(), estimatedText, candidates.size(),
+        return new Result(true, vehicle.depotName(), departureReferenceText, candidates.size(),
                 (int) withinTolerance, List.copyOf(candidates.subList(0, Math.min(10, candidates.size()))), reason);
     }
 
@@ -139,8 +139,8 @@ public final class OudiaDepotDepartureMatcher {
         }
     }
 
-    private static long nearestDailyOccurrence(int scheduleSeconds, long estimatedMillis, ZoneId zoneId) {
-        LocalDate estimatedDate = Instant.ofEpochMilli(estimatedMillis).atZone(zoneId).toLocalDate();
+    private static long nearestDailyOccurrence(int scheduleSeconds, long departureReferenceMillis, ZoneId zoneId) {
+        LocalDate estimatedDate = Instant.ofEpochMilli(departureReferenceMillis).atZone(zoneId).toLocalDate();
         long secondsOfDay = Math.floorMod(scheduleSeconds, SECONDS_PER_DAY);
         long bestMillis = 0;
         long bestDifference = Long.MAX_VALUE;
@@ -149,7 +149,7 @@ public final class OudiaDepotDepartureMatcher {
             LocalDate date = estimatedDate.plusDays(dayOffset);
             long candidateMillis = date.atStartOfDay(zoneId).toInstant().toEpochMilli()
                     + secondsOfDay * 1000L;
-            long difference = Math.abs(estimatedMillis - candidateMillis);
+            long difference = Math.abs(departureReferenceMillis - candidateMillis);
             if (difference < bestDifference) {
                 bestDifference = difference;
                 bestMillis = candidateMillis;
@@ -184,7 +184,7 @@ public final class OudiaDepotDepartureMatcher {
     }
 
     public record Candidate(int trainIndex, String direction, String depotStation,
-                            String scheduledDepartureText, String estimatedDepartureText,
+                            String scheduledDepartureText, String departureReferenceText,
                             long deltaMillis, boolean withinTolerance) {
         public String deltaText() {
             long seconds = Math.round(deltaMillis / 1000.0D);
@@ -192,7 +192,7 @@ public final class OudiaDepotDepartureMatcher {
         }
     }
 
-    public record Result(boolean available, String depotName, String estimatedDepartureText,
+    public record Result(boolean available, String depotName, String departureReferenceText,
                          int candidateCount, int matchCount, List<Candidate> topCandidates,
                          String reason) {
         private static Result failure(String reason) {
