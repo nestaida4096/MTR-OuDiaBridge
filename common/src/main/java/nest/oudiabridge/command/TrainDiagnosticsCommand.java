@@ -274,7 +274,7 @@ public final class TrainDiagnosticsCommand {
             return 0;
         }
 
-        final List<Object> simulators;
+        final List<Simulator> simulators;
         try {
             simulators = Mtr4RuntimeAccess.getSimulators();
         } catch (RuntimeException exception) {
@@ -291,7 +291,7 @@ public final class TrainDiagnosticsCommand {
         Vec3 origin = source.getPosition();
         List<CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>>> futures = new ArrayList<>();
 
-        for (Object simulator : simulators) {
+        for (Simulator simulator : simulators) {
             futures.add(Mtr4RuntimeAccess.collectVehicles(simulator));
         }
 
