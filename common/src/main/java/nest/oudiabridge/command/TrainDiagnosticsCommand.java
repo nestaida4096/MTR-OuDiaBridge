@@ -227,13 +227,13 @@ public final class TrainDiagnosticsCommand {
                 source.sendSuccess(() -> Component.literal("Station: " + analysis.currentStation()
                         + " -> " + analysis.nextStation()), false);
                 source.sendSuccess(() -> Component.literal("Scheduled departure: "
-                        + analysis.scheduledDepartureText() + " | scheduled arrival: "
+                        + analysis.scheduledDepartureText() + " | next-station event: "
                         + analysis.scheduledArrivalText()), false);
                 source.sendSuccess(() -> Component.literal("Clock: " + effectiveTime
                         + " | source: " + clockSource
                         + " | aligned: " + analysis.alignedClockText()
                         + " | deviation: " + analysis.deviationText()), false);
-                source.sendSuccess(() -> Component.literal("Next arrival: "
+                source.sendSuccess(() -> Component.literal("Time to next-station event: "
                         + analysis.remainingText()), false);
                 if (analysis.hasDistanceToNextStop()) {
                     source.sendSuccess(() -> Component.literal(String.format(
