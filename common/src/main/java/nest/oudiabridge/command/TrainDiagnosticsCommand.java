@@ -10,6 +10,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.phys.Vec3;
 import nest.oudiabridge.mtr4.Mtr4RuntimeAccess;
+import org.mtr.core.simulation.Simulator;
 import nest.oudiabridge.mtr4.OudiaBridgeSavedData;
 import nest.oudiabridge.mtr4.OudiaScheduleAnalyzer;
 import nest.oudiabridge.mtr4.OudiaTimetableRepository;
@@ -142,7 +143,7 @@ public final class TrainDiagnosticsCommand {
             }
         }
 
-        final List<Object> simulators;
+        final List<Simulator> simulators;
         try {
             simulators = Mtr4RuntimeAccess.getSimulators();
         } catch (RuntimeException exception) {
@@ -155,7 +156,7 @@ public final class TrainDiagnosticsCommand {
         }
 
         List<CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>>> futures = new ArrayList<>();
-        for (Object simulator : simulators) {
+        for (Simulator simulator : simulators) {
             futures.add(Mtr4RuntimeAccess.collectVehicles(simulator));
         }
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> {

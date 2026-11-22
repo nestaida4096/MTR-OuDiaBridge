@@ -38,3 +38,8 @@ sourcesJar {
     dependsOn commonSources
     from commonSources.archiveFile.map { zipTree(it) }
 }
+
+
+tasks.named("shadowJar") {
+    manifest { attributes(["MixinConfigs": "oudiabridge.mixins.json"]) }
+}
