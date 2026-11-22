@@ -93,6 +93,10 @@ public final class TrainDiagnosticsCommand {
                     + ". Use /oudiabridge timetables to list loaded IDs."));
             return 0;
         }
+        if (timetable.trains.isEmpty()) {
+            source.sendFailure(Component.literal("The selected timetable contains no trains."));
+            return 0;
+        }
         if (trainIndex >= timetable.trains.size()) {
             source.sendFailure(Component.literal("Train index is out of range. Valid range: 0-"
                     + (timetable.trains.size() - 1) + " (zero-based)."));
