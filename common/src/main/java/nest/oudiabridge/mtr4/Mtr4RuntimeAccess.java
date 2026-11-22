@@ -81,9 +81,11 @@ public final class Mtr4RuntimeAccess {
     }
 
     /**
-     * MTR 4.x embeds different Transport-Simulation-Core builds. Prefer the public
-     * iterator when present; older builds may expose the same live vehicle store only
-     * as Siding.vehicleIdMap. This method is called only from the simulator thread.
+     * MTR 4.0.5 stores active vehicles in Siding.vehicles (an ObjectArraySet).
+     * Later core builds may expose iterateVehicles(Consumer), while older variants
+     * may use a vehicleIdMap. Keep these compatibility paths isolated here.
+     *
+     * This method is called only from the simulator thread.
      */
     private static void iterateSidingVehicles(Object siding, Consumer<Object> consumer)
             throws ReflectiveOperationException {
@@ -94,18 +96,92 @@ public final class Mtr4RuntimeAccess {
             return;
         }
 
-        Object vehicleMap = readField(siding.getClass(), siding, "vehicleIdMap");
-        Method valuesMethod = vehicleMap.getClass().getMethod("values");
-        Object values = valuesMethod.invoke(vehicleMap);
-        if (values instanceof Iterable<?> vehicles) {
-            for (Object vehicle : vehicles) {
-                consumer.accept(vehicle);
-            }
+        // MTR 4.0.5: private final ObjectArraySet<Vehicle> vehicles.
+        Object vehicles = tryReadField(siding, "vehicles");
+        if (vehicles != null && iterateCollection(vehicles, consumer)) {
             return;
         }
 
-        throw new NoSuchMethodException(
-                siding.getClass().getName() + ".iterateVehicles(Consumer) and vehicleIdMap.values() unavailable");
+        // Compatibility with builds that used a map keyed by vehicle ID.
+        Object vehicleMap = tryReadField(siding, "vehicleIdMap");
+        if (vehicleMap != null && iterateCollection(vehicleMap, consumer)) {
+            return;
+        }
+
+        // Last resort for future core versions that rename the backing collection.
+        for (Class<?> type = siding.getClass(); type != null; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                String name = field.getName().toLowerCase(java.util.Locale.ROOT);
+                if (!name.contains("vehicle") && !name.contains("train")) {
+                    continue;
+                }
+                field.setAccessible(true);
+                Object candidate = field.get(siding);
+                if (candidate != null && iterateCollection(candidate, consumer)) {
+                    return;
+                }
+            }
+        }
+
+        throw new NoSuchFieldException(
+                "No iterable vehicle collection found in " + siding.getClass().getName()
+                        + "; fields=" + describeFields(siding.getClass()));
+    }
+
+    private static boolean iterateCollection(Object candidate, Consumer<Object> consumer)
+            throws ReflectiveOperationException {
+        if (candidate instanceof Iterable<?> iterable) {
+            for (Object value : iterable) {
+                if (value != null && isVehicle(value)) {
+                    consumer.accept(value);
+                }
+            }
+            return true;
+        }
+
+        Method valuesMethod = findMethod(candidate.getClass(), "values");
+        if (valuesMethod != null) {
+            valuesMethod.setAccessible(true);
+            Object values = valuesMethod.invoke(candidate);
+            if (values instanceof Iterable<?> iterable) {
+                for (Object value : iterable) {
+                    if (value != null && isVehicle(value)) {
+                        consumer.accept(value);
+                    }
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isVehicle(Object value) {
+        for (Class<?> type = value.getClass(); type != null; type = type.getSuperclass()) {
+            if ("org.mtr.core.data.Vehicle".equals(type.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Object tryReadField(Object target, String name) throws ReflectiveOperationException {
+        try {
+            Field field = findField(target.getClass(), name);
+            field.setAccessible(true);
+            return field.get(target);
+        } catch (NoSuchFieldException ignored) {
+            return null;
+        }
+    }
+
+    private static String describeFields(Class<?> type) {
+        List<String> names = new ArrayList<>();
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            for (Field field : current.getDeclaredFields()) {
+                names.add(field.getName() + ":" + field.getType().getTypeName());
+            }
+        }
+        return names.toString();
     }
 
     private static Method findMethod(Class<?> type, String name, Class<?>... parameterTypes) {
