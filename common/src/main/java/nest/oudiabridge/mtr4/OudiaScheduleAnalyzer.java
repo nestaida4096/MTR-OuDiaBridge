@@ -60,7 +60,8 @@ public final class OudiaScheduleAnalyzer {
             int deviation = alignedClock - referenceTime;
             int remaining = targetTime - alignedClock;
             return Analysis.success(current.stationName(), next.stationName(),
-                    referenceTime, targetTime, alignedClock, deviation, remaining);
+                    referenceTime, targetTime, alignedClock, deviation, remaining,
+                    vehicle.distanceToNextAtoStop(), vehicle.speedMetersPerMillisecond() * 1000);
         }
 
         return Analysis.failure("Bound train does not contain the vehicle's current/next station pair");
@@ -192,16 +193,36 @@ public final class OudiaScheduleAnalyzer {
 
     public record Analysis(boolean matched, String reason, String currentStation, String nextStation,
                            int scheduledDeparture, int scheduledArrival, int alignedClock,
-                           int deviationSeconds, int secondsUntilArrival) {
+                           int deviationSeconds, int secondsUntilArrival,
+                           double distanceToNextStopMeters, double currentSpeedMetersPerSecond) {
         private static Analysis failure(String reason) {
-            return new Analysis(false, reason, "", "", 0, 0, 0, 0, 0);
+            return new Analysis(false, reason, "", "", 0, 0, 0, 0, 0,
+                    Double.NaN, Double.NaN);
         }
 
         private static Analysis success(String currentStation, String nextStation,
                                         int departure, int arrival, int clock,
-                                        int deviation, int remaining) {
+                                        int deviation, int remaining, double distance,
+                                        double currentSpeed) {
             return new Analysis(true, "", currentStation, nextStation, departure,
-                    arrival, clock, deviation, remaining);
+                    arrival, clock, deviation, remaining, distance, currentSpeed);
+        }
+
+        public boolean hasDistanceToNextStop() {
+            return Double.isFinite(distanceToNextStopMeters) && distanceToNextStopMeters >= 0;
+        }
+
+        public boolean hasCurrentSpeed() {
+            return Double.isFinite(currentSpeedMetersPerSecond) && currentSpeedMetersPerSecond >= 0;
+        }
+
+        public boolean hasRequiredAverageSpeed() {
+            return hasDistanceToNextStop() && secondsUntilArrival > 0;
+        }
+
+        public double requiredAverageSpeedMetersPerSecond() {
+            return hasRequiredAverageSpeed()
+                    ? distanceToNextStopMeters / secondsUntilArrival : Double.NaN;
         }
 
         public String scheduledDepartureText() {
