@@ -217,6 +217,9 @@ public final class Mtr4RuntimeAccess {
         long departureIndex = number(invokeOptional(vehicle, "getDepartureIndex"), -1L);
 
         Object extra = readField(vehicle.getClass(), vehicle, "vehicleExtraData");
+        double speedMetersPerMillisecond = doubleNumber(tryReadField(vehicle, "speed"));
+        double railProgress = doubleNumber(tryReadField(vehicle, "railProgress"));
+        double distanceToNextAtoStop = findDistanceToNextAtoStop(vehicle, extra, railProgress);
         String route = stringValue(invokeOptional(extra, "getThisRouteName"));
         String station = stringValue(invokeOptional(extra, "getThisStationName"));
         String nextStation = stringValue(invokeOptional(extra, "getNextStationName"));
@@ -243,7 +246,41 @@ public final class Mtr4RuntimeAccess {
                 coordinates == null ? Double.NaN : coordinates[0],
                 coordinates == null ? Double.NaN : coordinates[1],
                 coordinates == null ? Double.NaN : coordinates[2],
-                positionStatus, simulationMillis);
+                positionStatus, simulationMillis, speedMetersPerMillisecond,
+                railProgress, distanceToNextAtoStop);
+    }
+
+    /**
+     * Reads the next ATO stopping point without invoking Vehicle#getPathStoppingPoint,
+     * which can update internal stopping-index state. Called only on the simulator thread.
+     */
+    private static double findDistanceToNextAtoStop(Object vehicle, Object extra, double railProgress)
+            throws ReflectiveOperationException {
+        if (!Double.isFinite(railProgress)) {
+            return Double.NaN;
+        }
+        Object rawIndex = tryReadField(vehicle, "nextStoppingIndexAto");
+        Object path = tryReadField(extra, "immutablePath");
+        if (!(rawIndex instanceof Number indexNumber) || !(path instanceof List<?> pathList)) {
+            return Double.NaN;
+        }
+        int index = indexNumber.intValue();
+        if (index < 0 || index >= pathList.size() - 1) {
+            return Double.NaN;
+        }
+        Object pathData = pathList.get(index);
+        Object dwellTime = invokeOptional(pathData, "getDwellTime");
+        Object endDistance = invokeOptional(pathData, "getEndDistance");
+        if (!(dwellTime instanceof Number dwell) || dwell.longValue() <= 0
+                || !(endDistance instanceof Number end)) {
+            return Double.NaN;
+        }
+        double distance = end.doubleValue() - railProgress;
+        return Double.isFinite(distance) && distance >= 0 ? distance : Double.NaN;
+    }
+
+    private static double doubleNumber(Object value) {
+        return value instanceof Number number ? number.doubleValue() : Double.NaN;
     }
 
     private static String describePathRange(Object path, double progress) {
@@ -372,7 +409,8 @@ public final class Mtr4RuntimeAccess {
                                   long departureIndex, String route, String station,
                                   String nextStation, String destination,
                                   double x, double y, double z, String positionStatus,
-                                  long simulationMillis) {
+                                  long simulationMillis, double speedMetersPerMillisecond,
+                                  double railProgress, double distanceToNextAtoStop) {
         public boolean hasPosition() {
             return Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z);
         }
