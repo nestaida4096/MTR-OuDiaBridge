@@ -25,3 +25,10 @@ mandatory=true
 versionRange="[11.1.17,)"
 ordering="AFTER"
 side="BOTH"
+
+[[dependencies.oudiabridge]]
+modId="mtr"
+mandatory=true
+versionRange="[4.0.5,)"
+ordering="AFTER"
+side="BOTH"
