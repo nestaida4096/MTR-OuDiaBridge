@@ -71,6 +71,7 @@ public final class Mtr4RuntimeAccess {
         double railProgress = vehicleState.getRailProgress();
         double distanceToNextAtoStop = findDistanceToNextAtoStop(vehicleState, extra, railProgress);
         long elapsedDwellMillis = Math.max(0, vehicleState.getElapsedDwellTime());
+        long recordedSidingDepartureMillis = vehicleState.getSidingDepartureTime();
         double routeElapsedMillis = siding.getTimeAlongRoute(railProgress);
         long estimatedDepartureMillis = onRoute && Double.isFinite(routeElapsedMillis) && routeElapsedMillis >= 0
                 ? simulationMillis - Math.round(routeElapsedMillis + elapsedDwellMillis)
@@ -88,7 +89,8 @@ public final class Mtr4RuntimeAccess {
                 position == null ? Double.NaN : position.y(),
                 position == null ? Double.NaN : position.z(),
                 positionStatus, simulationMillis, speed, railProgress, distanceToNextAtoStop,
-                siding.getDepotName(), estimatedDepartureMillis, routeElapsedMillis, elapsedDwellMillis);
+                siding.getDepotName(), estimatedDepartureMillis, routeElapsedMillis, elapsedDwellMillis,
+                recordedSidingDepartureMillis);
     }
 
     private static double findDistanceToNextAtoStop(VehicleSchemaAccessor vehicle,
@@ -139,7 +141,17 @@ public final class Mtr4RuntimeAccess {
                                   long simulationMillis, double speedMetersPerMillisecond,
                                   double railProgress, double distanceToNextAtoStop,
                                   String depotName, long estimatedDepartureMillis,
-                                  double routeElapsedMillis, long elapsedDwellMillis) {
+                                  double routeElapsedMillis, long elapsedDwellMillis,
+                                  long recordedSidingDepartureMillis) {
+        public long departureReferenceMillis() {
+            return recordedSidingDepartureMillis > 0
+                    ? recordedSidingDepartureMillis : estimatedDepartureMillis;
+        }
+
+        public String departureReferenceSource() {
+            return recordedSidingDepartureMillis > 0 ? "MTR4 sidingDepartureTime" : "route-timing estimate";
+        }
+
         public boolean hasPosition() {
             return Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z);
         }
