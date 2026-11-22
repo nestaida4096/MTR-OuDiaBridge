@@ -9,6 +9,8 @@ on:
       - "build.gradle"
       - "settings.gradle"
       - "gradle.properties"
+      - "gradle/wrapper/gradle-wrapper.properties"
+      - "gradle/wrapper/gradle-wrapper.properties"
       - ".github/workflows/mtr4-build.yml"
   pull_request:
     paths:
