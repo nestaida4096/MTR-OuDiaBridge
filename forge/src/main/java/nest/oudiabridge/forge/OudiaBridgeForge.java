@@ -1,7 +1,5 @@
 package nest.oudiabridge.forge;
 
-import net.minecraft.commands.CommandDispatcher;
-import net.minecraft.commands.CommandSourceStack;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
