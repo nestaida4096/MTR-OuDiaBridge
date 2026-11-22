@@ -69,8 +69,7 @@ public final class Mtr4RuntimeAccess {
 
         List<VehicleSnapshot> result = new ArrayList<>();
         for (Object siding : iterable) {
-            Method iterateVehicles = siding.getClass().getMethod("iterateVehicles", Consumer.class);
-            iterateVehicles.invoke(siding, (Consumer<Object>) vehicle -> {
+            iterateSidingVehicles(siding, vehicle -> {
                 try {
                     result.add(snapshot(simulator, vehicle));
                 } catch (ReflectiveOperationException exception) {
@@ -79,6 +78,49 @@ public final class Mtr4RuntimeAccess {
             });
         }
         return result;
+    }
+
+    /**
+     * MTR 4.x embeds different Transport-Simulation-Core builds. Prefer the public
+     * iterator when present; older builds may expose the same live vehicle store only
+     * as Siding.vehicleIdMap. This method is called only from the simulator thread.
+     */
+    private static void iterateSidingVehicles(Object siding, Consumer<Object> consumer)
+            throws ReflectiveOperationException {
+        Method iterateVehicles = findMethod(siding.getClass(), "iterateVehicles", Consumer.class);
+        if (iterateVehicles != null) {
+            iterateVehicles.setAccessible(true);
+            iterateVehicles.invoke(siding, consumer);
+            return;
+        }
+
+        Object vehicleMap = readField(siding.getClass(), siding, "vehicleIdMap");
+        Method valuesMethod = vehicleMap.getClass().getMethod("values");
+        Object values = valuesMethod.invoke(vehicleMap);
+        if (values instanceof Iterable<?> vehicles) {
+            for (Object vehicle : vehicles) {
+                consumer.accept(vehicle);
+            }
+            return;
+        }
+
+        throw new NoSuchMethodException(
+                siding.getClass().getName() + ".iterateVehicles(Consumer) and vehicleIdMap.values() unavailable");
+    }
+
+    private static Method findMethod(Class<?> type, String name, Class<?>... parameterTypes) {
+        try {
+            return type.getMethod(name, parameterTypes);
+        } catch (NoSuchMethodException ignored) {
+        }
+
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            try {
+                return current.getDeclaredMethod(name, parameterTypes);
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+        return null;
     }
 
     private static VehicleSnapshot snapshot(Object simulator, Object vehicle) throws ReflectiveOperationException {
