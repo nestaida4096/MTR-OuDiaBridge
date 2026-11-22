@@ -152,6 +152,8 @@ public final class TrainDiagnosticsCommand {
                 int total = 0;
                 int matched = 0;
                 int positionUnavailable = 0;
+                java.util.Map<String, Integer> positionStatusCounts = new java.util.LinkedHashMap<>();
+                List<String> positionSamples = new ArrayList<>();
                 List<String> lines = new ArrayList<>();
 
                 for (CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>> future : futures) {
@@ -160,6 +162,10 @@ public final class TrainDiagnosticsCommand {
                         total++;
                         if (!vehicle.hasPosition()) {
                             positionUnavailable++;
+                            positionStatusCounts.merge(vehicle.positionStatus(), 1, Integer::sum);
+                            if (positionSamples.size() < 3) {
+                                positionSamples.add("Vehicle " + vehicle.id() + ": " + vehicle.positionStatus());
+                            }
                             continue;
                         }
                         double dx = vehicle.x() - origin.x;
@@ -188,6 +194,10 @@ public final class TrainDiagnosticsCommand {
                 if (unavailableCount > 0) {
                     source.sendSuccess(() -> Component.literal(
                             "Position unavailable for " + unavailableCount + " vehicle(s); omitted from radius results."), false);
+                    positionStatusCounts.forEach((status, count) -> source.sendSuccess(() ->
+                            Component.literal("Position status [" + count + "]: " + status), false));
+                    positionSamples.forEach(sample -> source.sendSuccess(() ->
+                            Component.literal(sample), false));
                 }
                 lines.forEach(line -> source.sendSuccess(() -> Component.literal(line), false));
                 if (matched == 0) {
