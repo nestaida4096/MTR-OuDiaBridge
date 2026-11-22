@@ -61,7 +61,9 @@ public final class OudiaScheduleAnalyzer {
             int remaining = targetTime - alignedClock;
             return Analysis.success(current.stationName(), next.stationName(),
                     referenceTime, targetTime, alignedClock, deviation, remaining,
-                    vehicle.distanceToNextAtoStop(), vehicle.speedMetersPerMillisecond() * 1000);
+                    next.stopType() == OudiaParser.StopType.STOP
+                            ? vehicle.distanceToNextAtoStop() : Double.NaN,
+                    vehicle.speedMetersPerMillisecond() * 1000);
         }
 
         return Analysis.failure("Bound train does not contain the vehicle's current/next station pair");
@@ -129,7 +131,7 @@ public final class OudiaScheduleAnalyzer {
                 departure = advanceDay(departure, previous);
                 previous = departure;
             }
-            result.add(new TimedStop(name, arrival, departure));
+            result.add(new TimedStop(name, stop.stopType, arrival, departure));
         }
         return result;
     }
