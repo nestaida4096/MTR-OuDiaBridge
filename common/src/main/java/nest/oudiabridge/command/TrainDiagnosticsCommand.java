@@ -16,6 +16,8 @@ import nest.oudiabridge.mtr4.OudiaScheduleAnalyzer;
 import nest.oudiabridge.mtr4.OudiaTimetableRepository;
 import nest.oudiabridge.mtr4.OudiaVehicleBindingService;
 import nest.oudiabridge.mtr4.OudiaVehicleMatcher;
+import nest.oudiabridge.mtr4.OudiaTimeMatcher;
+import java.time.ZoneId;
 import nest.oudiabridge.parser.OudiaParser;
 
 import java.util.ArrayList;
@@ -41,6 +43,12 @@ public final class TrainDiagnosticsCommand {
                         .requires(source -> source.hasPermission(2))
                         .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
                                 .executes(context -> diagnoseMatch(
+                                        context.getSource(),
+                                        LongArgumentType.getLong(context, "vehicleId")))))
+                .then(literal("time-match")
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
+                                .executes(context -> diagnoseTimingCandidates(
                                         context.getSource(),
                                         LongArgumentType.getLong(context, "vehicleId")))))
                 .then(literal("bind")
@@ -181,6 +189,85 @@ public final class TrainDiagnosticsCommand {
                 }));
         source.sendSuccess(() -> Component.literal(
                 "Collecting MTR4 vehicle state for read-only OuDia match diagnostics..."), false);
+        return 1;
+    }
+
+    /**
+     * Ranks station-pair candidates using the local wall-clock time represented by the
+     * MTR4 simulation timestamp. This command is diagnostic-only and never creates a binding.
+     */
+    private static int diagnoseTimingCandidates(CommandSourceStack source, long vehicleId) {
+        final List<Simulator> simulators;
+        try {
+            simulators = Mtr4RuntimeAccess.getSimulators();
+        } catch (RuntimeException exception) {
+            source.sendFailure(Component.literal("MTR4 runtime access failed: " + exception.getMessage()));
+            return 0;
+        }
+        if (simulators.isEmpty()) {
+            source.sendFailure(Component.literal("MTR4 simulator is not initialized yet."));
+            return 0;
+        }
+
+        List<CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>>> futures = new ArrayList<>();
+        for (Simulator simulator : simulators) {
+            futures.add(Mtr4RuntimeAccess.collectVehicles(simulator));
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) ->
+                source.getServer().execute(() -> {
+                    if (error != null) {
+                        source.sendFailure(Component.literal("Failed to read MTR4 vehicles: " + rootMessage(error)));
+                        return;
+                    }
+
+                    Mtr4RuntimeAccess.VehicleSnapshot selected = null;
+                    for (CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>> future : futures) {
+                        for (Mtr4RuntimeAccess.VehicleSnapshot vehicle : future.join()) {
+                            if (vehicle.id() == vehicleId) {
+                                selected = vehicle;
+                                break;
+                            }
+                        }
+                        if (selected != null) break;
+                    }
+                    if (selected == null) {
+                        source.sendFailure(Component.literal("MTR4 vehicle not found: " + vehicleId));
+                        return;
+                    }
+
+                    final Mtr4RuntimeAccess.VehicleSnapshot vehicle = selected;
+                    ZoneId zone = ZoneId.systemDefault();
+                    source.sendSuccess(() -> Component.literal(
+                            "OuDia time candidate ranking (read-only) | vehicle=" + vehicleId), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "Clock zone=" + zone + " | route=" + emptyAsDash(vehicle.route())
+                                    + " | " + emptyAsDash(vehicle.station())
+                                    + " -> " + emptyAsDash(vehicle.nextStation())), false);
+
+                    var timetables = OudiaTimetableRepository.getAll();
+                    if (timetables.isEmpty()) {
+                        source.sendFailure(Component.literal("No OuDia timetables are loaded. Use /oudiabridge reload."));
+                        return;
+                    }
+
+                    timetables.forEach((id, timetable) -> {
+                        OudiaTimeMatcher.Result result = OudiaTimeMatcher.analyze(timetable, vehicle, zone);
+                        source.sendSuccess(() -> Component.literal("Timetable " + id
+                                + " | clock=" + (result.clockText().isBlank() ? "-" : result.clockText())
+                                + " | candidates=" + result.candidateCount()
+                                + " | pairMatchesWithoutTimes=" + result.pairMatchesWithoutTimes()
+                                + " | " + result.reason()), false);
+                        result.topCandidates().forEach(candidate -> source.sendSuccess(() ->
+                                Component.literal(String.format(java.util.Locale.ROOT,
+                                        "  #%d %s | %s -> %s | departureDelta=%+ds | intervalDistance=%ds | inside=%s",
+                                        candidate.trainIndex(), candidate.direction(),
+                                        candidate.scheduledDepartureText(), candidate.scheduledArrivalText(),
+                                        candidate.departureDeltaSeconds(), candidate.intervalDistanceSeconds(),
+                                        candidate.insideScheduledInterval())), false));
+                    });
+                }));
+        source.sendSuccess(() -> Component.literal(
+                "Collecting MTR4 vehicle state for read-only OuDia time candidate ranking..."), false);
         return 1;
     }
 
