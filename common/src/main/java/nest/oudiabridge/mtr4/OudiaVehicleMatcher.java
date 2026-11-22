@@ -107,7 +107,13 @@ public final class OudiaVehicleMatcher {
     }
 
     private static String normalize(String value) {
-        return value == null ? "" : value.trim().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        if (value == null) {
+            return "";
+        }
+        // MTR4 names may contain "Japanese|English||id" metadata.
+        // OuDia normally stores the Japanese station/route name only.
+        String primaryName = value.split("\\|", 2)[0];
+        return primaryName.trim().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
     }
 
     private record Candidate(int trainIndex, int score) {
