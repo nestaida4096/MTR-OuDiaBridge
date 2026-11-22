@@ -98,13 +98,13 @@ public final class Mtr4RuntimeAccess {
 
         // MTR 4.0.5: private final ObjectArraySet<Vehicle> vehicles.
         Object vehicles = tryReadField(siding, "vehicles");
-        if (vehicles != null && iterateCollection(vehicles, consumer)) {
+        if (vehicles != null && iterateCollection(vehicles, consumer, true)) {
             return;
         }
 
         // Compatibility with builds that used a map keyed by vehicle ID.
         Object vehicleMap = tryReadField(siding, "vehicleIdMap");
-        if (vehicleMap != null && iterateCollection(vehicleMap, consumer)) {
+        if (vehicleMap != null && iterateCollection(vehicleMap, consumer, true)) {
             return;
         }
 
@@ -117,7 +117,7 @@ public final class Mtr4RuntimeAccess {
                 }
                 field.setAccessible(true);
                 Object candidate = field.get(siding);
-                if (candidate != null && iterateCollection(candidate, consumer)) {
+                if (candidate != null && iterateCollection(candidate, consumer, false)) {
                     return;
                 }
             }
@@ -128,15 +128,17 @@ public final class Mtr4RuntimeAccess {
                         + "; fields=" + describeFields(siding.getClass()));
     }
 
-    private static boolean iterateCollection(Object candidate, Consumer<Object> consumer)
+    private static boolean iterateCollection(Object candidate, Consumer<Object> consumer, boolean acceptEmpty)
             throws ReflectiveOperationException {
         if (candidate instanceof Iterable<?> iterable) {
+            boolean foundVehicle = false;
             for (Object value : iterable) {
                 if (value != null && isVehicle(value)) {
+                    foundVehicle = true;
                     consumer.accept(value);
                 }
             }
-            return true;
+            return foundVehicle || acceptEmpty;
         }
 
         Method valuesMethod = findMethod(candidate.getClass(), "values");
@@ -144,12 +146,14 @@ public final class Mtr4RuntimeAccess {
             valuesMethod.setAccessible(true);
             Object values = valuesMethod.invoke(candidate);
             if (values instanceof Iterable<?> iterable) {
+                boolean foundVehicle = false;
                 for (Object value : iterable) {
                     if (value != null && isVehicle(value)) {
+                        foundVehicle = true;
                         consumer.accept(value);
                     }
                 }
-                return true;
+                return foundVehicle || acceptEmpty;
             }
         }
         return false;
