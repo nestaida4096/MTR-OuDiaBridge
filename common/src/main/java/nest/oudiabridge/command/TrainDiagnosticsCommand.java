@@ -197,20 +197,22 @@ public final class TrainDiagnosticsCommand {
                     return;
                 }
 
-                String effectiveTime = currentTime;
-                String clockSource = "manual input";
-                if (effectiveTime == null) {
+                String resolvedTime = currentTime;
+                String resolvedClockSource = "manual input";
+                if (resolvedTime == null) {
                     if (selected.simulationMillis() <= 0) {
                         source.sendFailure(Component.literal(
                                 "MTR4 simulator clock is unavailable. Supply an explicit time as HH:mm:ss."));
                         return;
                     }
                     java.time.ZoneId zone = java.time.ZoneId.systemDefault();
-                    effectiveTime = java.time.Instant.ofEpochMilli(selected.simulationMillis())
+                    resolvedTime = java.time.Instant.ofEpochMilli(selected.simulationMillis())
                             .atZone(zone).toLocalTime()
                             .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
-                    clockSource = "MTR4 simulator clock (" + zone + ")";
+                    resolvedClockSource = "MTR4 simulator clock (" + zone + ")";
                 }
+                final String effectiveTime = resolvedTime;
+                final String clockSource = resolvedClockSource;
 
                 OudiaScheduleAnalyzer.Analysis analysis = OudiaScheduleAnalyzer.analyze(
                         timetable, binding.trainIndex(), selected, effectiveTime);
