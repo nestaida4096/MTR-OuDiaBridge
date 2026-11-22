@@ -41,12 +41,12 @@ public final class OudiaDepotDepartureMatcher {
         if (!vehicle.onRoute()) {
             return Result.failure("Vehicle has not left the depot");
         }
-        if (vehicle.estimatedDepartureMillis() <= 0) {
-            return Result.failure("Route timing is unavailable; departure time cannot be estimated");
+        if (vehicle.departureReferenceMillis() <= 0) {
+            return Result.failure("MTR4 departure time is unavailable and route timing cannot estimate it");
         }
 
         String depotName = normalize(vehicle.depotName());
-        long estimatedMillis = vehicle.estimatedDepartureMillis();
+        long estimatedMillis = vehicle.departureReferenceMillis();
         String estimatedText = DATE_TIME_FORMAT.format(Instant.ofEpochMilli(estimatedMillis).atZone(zoneId));
         List<Candidate> candidates = new ArrayList<>();
 
