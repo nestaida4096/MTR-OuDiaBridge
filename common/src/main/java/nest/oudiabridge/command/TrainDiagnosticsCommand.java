@@ -49,6 +49,14 @@ public final class TrainDiagnosticsCommand {
                         .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
                                 .executes(context -> unbind(context.getSource(),
                                         LongArgumentType.getLong(context, "vehicleId")))))
+                .then(literal("timing")
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
+                                .then(argument("currentTime", StringArgumentType.word())
+                                        .executes(context -> analyzeTiming(
+                                                context.getSource(),
+                                                LongArgumentType.getLong(context, "vehicleId"),
+                                                StringArgumentType.getString(context, "currentTime"))))))
                 .then(literal("trains")
                         .requires(source -> source.hasPermission(2))
                         .executes(context -> execute(context.getSource(), 64))
@@ -111,6 +119,102 @@ public final class TrainDiagnosticsCommand {
     private static int unbind(CommandSourceStack source, long vehicleId) {
         OudiaVehicleBindingService.unbind(source.getLevel(), vehicleId);
         source.sendSuccess(() -> Component.literal("Removed OuDia binding for MTR4 vehicle " + vehicleId + "."), true);
+        return 1;
+    }
+
+    /**
+     * Compares a bound vehicle with its OuDia schedule using an explicitly supplied clock.
+     * This is analysis-only: it never writes vehicle speed, rail progress, or MTR internals.
+     */
+    private static int analyzeTiming(CommandSourceStack source, long vehicleId, String currentTime) {
+        try {
+            OudiaScheduleAnalyzer.parseTime(currentTime);
+        } catch (IllegalArgumentException exception) {
+            source.sendFailure(Component.literal("Invalid time. Use HHmm, HHmmss, HH:mm, or HH:mm:ss."));
+            return 0;
+        }
+
+        final List<Object> simulators;
+        try {
+            simulators = Mtr4RuntimeAccess.getSimulators();
+        } catch (RuntimeException exception) {
+            source.sendFailure(Component.literal("MTR4 runtime access failed: " + exception.getMessage()));
+            return 0;
+        }
+        if (simulators.isEmpty()) {
+            source.sendFailure(Component.literal("MTR4 simulator is not initialized yet."));
+            return 0;
+        }
+
+        List<CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>>> futures = new ArrayList<>();
+        for (Object simulator : simulators) {
+            futures.add(Mtr4RuntimeAccess.collectVehicles(simulator));
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> {
+            source.getServer().execute(() -> {
+                if (error != null) {
+                    source.sendFailure(Component.literal("Failed to read MTR4 vehicles: " + rootMessage(error)));
+                    return;
+                }
+
+                Mtr4RuntimeAccess.VehicleSnapshot selected = null;
+                for (CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>> future : futures) {
+                    for (Mtr4RuntimeAccess.VehicleSnapshot vehicle : future.join()) {
+                        if (vehicle.id() == vehicleId) {
+                            selected = vehicle;
+                            break;
+                        }
+                    }
+                    if (selected != null) break;
+                }
+                if (selected == null) {
+                    source.sendFailure(Component.literal("MTR4 vehicle not found: " + vehicleId));
+                    return;
+                }
+
+                String bindingText = matchOuDia(source, selected);
+                OudiaBridgeSavedData.VehicleBinding binding =
+                        OudiaVehicleBindingService.getBinding(source.getLevel(), vehicleId);
+                if (binding == null) {
+                    source.sendFailure(Component.literal("Vehicle has no valid OuDia binding (match=" + bindingText + ")."));
+                    return;
+                }
+
+                OudiaParser.ParseResult timetable =
+                        OudiaTimetableRepository.getAll().get(binding.timetableId());
+                if (timetable == null || binding.trainIndex() < 0
+                        || binding.trainIndex() >= timetable.trains.size()) {
+                    source.sendFailure(Component.literal("Stored OuDia binding is invalid: "
+                            + binding.timetableId() + "#" + binding.trainIndex()));
+                    return;
+                }
+
+                OudiaScheduleAnalyzer.Analysis analysis = OudiaScheduleAnalyzer.analyze(
+                        timetable, binding.trainIndex(), selected, currentTime);
+                if (!analysis.matched()) {
+                    source.sendFailure(Component.literal("Schedule analysis unavailable: " + analysis.reason()));
+                    return;
+                }
+
+                source.sendSuccess(() -> Component.literal("OuDia timing analysis (read-only) | vehicle="
+                        + vehicleId + " | timetable=" + binding.timetableId()
+                        + "#" + binding.trainIndex()), false);
+                source.sendSuccess(() -> Component.literal("Station: " + analysis.currentStation()
+                        + " -> " + analysis.nextStation()), false);
+                source.sendSuccess(() -> Component.literal("Scheduled departure: "
+                        + analysis.scheduledDepartureText() + " | scheduled arrival: "
+                        + analysis.scheduledArrivalText()), false);
+                source.sendSuccess(() -> Component.literal("Supplied clock: " + currentTime
+                        + " | aligned clock: " + analysis.alignedClockText()
+                        + " | deviation: " + analysis.deviationText()), false);
+                source.sendSuccess(() -> Component.literal("Next arrival: "
+                        + analysis.remainingText()), false);
+                source.sendSuccess(() -> Component.literal(
+                        "Distance/required speed: not available yet; no speed control is applied."), false);
+            });
+        });
+        source.sendSuccess(() -> Component.literal(
+                "Collecting MTR4 vehicle state for OuDia timing analysis..."), false);
         return 1;
     }
 
