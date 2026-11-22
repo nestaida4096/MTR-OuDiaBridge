@@ -252,6 +252,7 @@ public final class OudiaScheduleAnalyzer {
         }
     }
 
-    private record TimedStop(String stationName, Integer arrivalSeconds, Integer departureSeconds) {
+    private record TimedStop(String stationName, OudiaParser.StopType stopType,
+                             Integer arrivalSeconds, Integer departureSeconds) {
     }
 }
