@@ -345,7 +345,7 @@ public final class TrainDiagnosticsCommand {
                                             ? Math.round(vehicle.routeElapsedMillis()) + "ms" : "unavailable")
                                     + " | currentDwell=" + vehicle.elapsedDwellMillis() + "ms"), false);
                     source.sendSuccess(() -> Component.literal(
-                            "Estimate basis: MTR4 path running-time profile + recorded dwell times; extra signal/block waits are not separately measured."), false);
+                            "Fallback estimate basis: MTR4 path running-time profile + current recorded dwell time; extra signal/block waits are not separately measured."), false);
 
                     var timetables = OudiaTimetableRepository.getAll();
                     if (timetables.isEmpty()) {
