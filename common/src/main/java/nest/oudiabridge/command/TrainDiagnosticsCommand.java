@@ -58,7 +58,7 @@ public final class TrainDiagnosticsCommand {
                                         context.getSource(),
                                         LongArgumentType.getLong(context, "vehicleId"),
                                         null))
-                                .then(argument("currentTime", StringArgumentType.word())
+                                .then(argument("currentTime", StringArgumentType.greedyString())
                                         .executes(context -> analyzeTiming(
                                                 context.getSource(),
                                                 LongArgumentType.getLong(context, "vehicleId"),
