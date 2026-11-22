@@ -15,14 +15,23 @@ Run from the repository root:
 .\gradlew.bat build
 ```
 
-## Diagnostics command
-The permission-level-2 command `/oudiabridge trains [radius]` collects MTR4 vehicles from the current dimension. The default radius is 64 blocks and the maximum is 4096 blocks. Vehicle state is read through `Simulator.run` so that threaded MTR simulation is not accessed from the Minecraft server thread.
+## Commands
+Both commands require permission level 2.
 
-The runtime bridge currently resolves MTR's private `Init.main` and `Main.simulators` fields reflectively. This is an isolated compatibility boundary; it must be checked against the exact MTR release being tested. Vehicles whose head position cannot be resolved are reported as omitted rather than being incorrectly treated as nearby.
+- `/oudiabridge reload`: loads every `.oud2` file in `config/oudiabridge/timetables/` on the server. The file name without extension becomes the timetable ID.
+- `/oudiabridge trains [radius]`: lists vehicles in the current dimension within the specified radius. The default is 64 blocks and the maximum is 4096 blocks.
 
-## Porting status
-- Architectury common/Fabric/Forge structure: present
-- MTR4 runtime access and nearby vehicle diagnostics: initial implementation
-- Persistent OuDia-to-Vehicle association: pending
-- MTR4 door/departure behavior: upstream code inspection indicates `Vehicle.startUp` closes doors and proceeds only when its private door cooldown reaches zero; no behavioral patch has been made without an observed MTR4 defect
-- Fabric/Forge build and in-game verification: pending
+Vehicle state is collected through `Simulator.run` to avoid reading threaded MTR simulation state from the Minecraft server thread. Vehicles whose head position cannot be resolved are explicitly omitted from the radius results.
+
+The runtime bridge resolves MTR's private `Init.main` and `Main.simulators` fields reflectively. This is isolated in `Mtr4RuntimeAccess` and must be checked against the exact MTR release being tested.
+
+## OuDia-to-vehicle association
+The matcher requires an exact normalized route-name match and a unique current/next station sequence. Configured MTR station names from the parser's station mappings are preferred over the original OuDia station names. Ambiguous matches are not bound.
+
+Successful matches are stored in per-dimension Minecraft SavedData under the MTR vehicle ID. The binding API is exposed through `OudiaVehicleBindingService`. The diagnostics command attempts matching for each nearby vehicle after timetables have been reloaded.
+
+## Door and departure behavior
+See [docs/MTR4_DOOR_DEPARTURE.md](docs/MTR4_DOOR_DEPARTURE.md). The inspected MTR4 vehicle lifecycle already has a door cooldown gate before departure. No MTR4 movement patch is applied without a reproducible defect.
+
+## Verification status
+CI builds for Fabric and Forge are being used to check compilation. In-game runtime verification still requires testing on both loaders with MTR 4.0.5. Source inspection and CI compilation do not establish runtime correctness.
