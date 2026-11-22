@@ -7,6 +7,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.phys.Vec3;
 import nest.oudiabridge.mtr4.Mtr4RuntimeAccess;
+import nest.oudiabridge.mtr4.OudiaTimetableRepository;
+import nest.oudiabridge.mtr4.OudiaVehicleBindingService;
+import nest.oudiabridge.mtr4.OudiaVehicleMatcher;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,12 +24,30 @@ public final class TrainDiagnosticsCommand {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(literal("oudiabridge")
+                .then(literal("reload")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(context -> reload(context.getSource())))
                 .then(literal("trains")
                         .requires(source -> source.hasPermission(2))
                         .executes(context -> execute(context.getSource(), 64))
                         .then(argument("radius", DoubleArgumentType.doubleArg(0.0, 4096.0))
                                 .executes(context -> execute(context.getSource(),
                                         DoubleArgumentType.getDouble(context, "radius"))))));
+    }
+
+    private static int reload(CommandSourceStack source) {
+        try {
+            OudiaTimetableRepository.ReloadResult result =
+                    OudiaTimetableRepository.reload(source.getServer().getServerDirectory());
+            source.sendSuccess(() -> Component.literal(
+                    "Loaded " + result.loadedCount() + " OuDia timetable(s) from " + result.directory()), true);
+            result.failures().forEach((file, message) ->
+                    source.sendFailure(Component.literal(file + ": " + message)));
+            return result.loadedCount();
+        } catch (Exception exception) {
+            source.sendFailure(Component.literal("OuDia timetable reload failed: " + exception.getMessage()));
+            return 0;
+        }
     }
 
     private static int execute(CommandSourceStack source, double radius) {
@@ -79,13 +100,14 @@ public final class TrainDiagnosticsCommand {
                         if (distanceSquared > radius * radius) continue;
 
                         matched++;
+                        String timetableMatch = matchOuDia(source, vehicle);
                         lines.add(String.format(
-                                "Vehicle %d | %.1fm | %s | %s | %s -> %s | destination=%s | moving=%s | departureIndex=%d",
+                                "Vehicle %d | %.1fm | %s | %s | %s -> %s | destination=%s | moving=%s | departureIndex=%d | oudia=%s",
                                 vehicle.id(), Math.sqrt(distanceSquared),
                                 vehicle.onRoute() ? "on-route" : "not-on-route",
                                 emptyAsDash(vehicle.route()), emptyAsDash(vehicle.station()),
                                 emptyAsDash(vehicle.nextStation()), emptyAsDash(vehicle.destination()),
-                                vehicle.moving(), vehicle.departureIndex()));
+                                vehicle.moving(), vehicle.departureIndex(), timetableMatch));
                     }
                 }
 
@@ -106,6 +128,29 @@ public final class TrainDiagnosticsCommand {
         });
         source.sendSuccess(() -> Component.literal("Collecting MTR4 vehicle state on simulator thread..."), false);
         return 1;
+    }
+
+    private static String matchOuDia(CommandSourceStack source, Mtr4RuntimeAccess.VehicleSnapshot vehicle) {
+        String matchedId = null;
+        int matchedIndex = -1;
+        int matches = 0;
+        for (var entry : OudiaTimetableRepository.getAll().entrySet()) {
+            OudiaVehicleMatcher.MatchResult result = OudiaVehicleMatcher.match(entry.getValue(), vehicle);
+            if (result.status() == OudiaVehicleMatcher.Status.MATCHED) {
+                matchedId = entry.getKey();
+                matchedIndex = result.trainIndex();
+                matches++;
+            }
+        }
+        if (matches == 1) {
+            OudiaVehicleBindingService.bind(source.getLevel(), vehicle.id(), matchedId, matchedIndex);
+            return matchedId + "#" + matchedIndex;
+        }
+        if (matches > 1) {
+            return "ambiguous(" + matches + ")";
+        }
+        var existing = OudiaVehicleBindingService.getBinding(source.getLevel(), vehicle.id());
+        return existing == null ? "unmatched" : existing.timetableId() + "#" + existing.trainIndex() + "(stored)";
     }
 
     private static String emptyAsDash(String value) {
