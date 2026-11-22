@@ -690,12 +690,10 @@ public abstract class TrainMixin {
             return;
         }
 
-        // 3. ドアが閉まりきるまでの待機（ドア閉開始から5秒以上経過した場合は不具合防止のため強制通過）
+        // 3. ドアが完全に閉じるまで待機する。
+        // 時間経過による強制通過を行うと、doorValue が残った状態で MTR の startUp() が呼ばれ、
+        // 扉が閉まりきる前に列車が動き出す原因になる。
         if (this.doorValue > 0.01F) {
-            if (this.elapsedDwellTicks > minDwellTicks + 100) {
-                cir.setReturnValue((int) this.elapsedDwellTicks);
-                return;
-            }
             cir.setReturnValue((int) this.elapsedDwellTicks + 20);
             return;
         }
