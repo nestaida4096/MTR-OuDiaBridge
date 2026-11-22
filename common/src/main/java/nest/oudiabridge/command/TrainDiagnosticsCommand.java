@@ -235,8 +235,31 @@ public final class TrainDiagnosticsCommand {
                         + " | deviation: " + analysis.deviationText()), false);
                 source.sendSuccess(() -> Component.literal("Next arrival: "
                         + analysis.remainingText()), false);
+                if (analysis.hasDistanceToNextStop()) {
+                    source.sendSuccess(() -> Component.literal(String.format(
+                            java.util.Locale.ROOT, "Distance to next ATO stop: %.1f m",
+                            analysis.distanceToNextStopMeters())), false);
+                } else {
+                    source.sendSuccess(() -> Component.literal(
+                            "Distance to next ATO stop: unavailable"), false);
+                }
+                if (analysis.hasCurrentSpeed()) {
+                    source.sendSuccess(() -> Component.literal(String.format(
+                            java.util.Locale.ROOT, "Current speed: %.1f km/h",
+                            analysis.currentSpeedMetersPerSecond() * 3.6)), false);
+                } else {
+                    source.sendSuccess(() -> Component.literal("Current speed: unavailable"), false);
+                }
+                if (analysis.hasRequiredAverageSpeed()) {
+                    source.sendSuccess(() -> Component.literal(String.format(
+                            java.util.Locale.ROOT, "Required average speed to meet arrival: %.1f km/h (estimate)",
+                            analysis.requiredAverageSpeedMetersPerSecond() * 3.6)), false);
+                } else {
+                    source.sendSuccess(() -> Component.literal(
+                            "Required average speed: unavailable (no remaining scheduled time or stop distance)"), false);
+                }
                 source.sendSuccess(() -> Component.literal(
-                        "Distance/required speed: not available yet; no speed control is applied."), false);
+                        "Read-only estimate; MTR4 speed limits, braking, signals and reservations remain authoritative."), false);
             });
         });
         source.sendSuccess(() -> Component.literal(
