@@ -21,6 +21,16 @@ The MTR3 defect was caused by a forced dwell-time pass after a fixed tick thresh
 
 No new patch should be introduced without a reproducible MTR4 4.0.5 case showing that the cooldown gate can be bypassed or that the vehicle moves before the doors are closed.
 
+## Add-on-side operating policy
+
+MTR4 and Transport-Simulation-Core are immutable dependencies for this project. Do not patch, fork, replace, or inject changes into their vehicle lifecycle.
+
+- Leave MTR4's door closing, cooldown, rail reservation, and departure checks authoritative.
+- Do not call `Vehicle.startUp()` or mutate internal door/cooldown fields from OuDiaBridge.
+- Treat the OuDia departure time as a target, not a hard deadline.
+- A delay of a few seconds is acceptable. Prefer waiting for MTR4's normal departure path over forcing an on-time departure.
+- OuDiaBridge may observe and report schedule deviation, but must not bypass MTR4 safety or route-block conditions.
+
 ## In-game verification still required
 
 - Verify a normal platform stop: doors open, close, then departure.
