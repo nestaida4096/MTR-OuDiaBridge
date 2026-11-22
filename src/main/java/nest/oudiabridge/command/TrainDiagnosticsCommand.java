@@ -85,6 +85,7 @@ public final class TrainDiagnosticsCommand {
         int shown = Math.min(MAX_RESULTS, nearbyTrains.size());
         for (int i = 0; i < shown; i++) {
             final NearbyTrain nearby = nearbyTrains.get(i);
+            final int resultIndex = i + 1;
             final long trainId = nearby.train.id;
             final OudiaWorldSyncState.TrainOperatingState operatingState =
                     OudiaWorldSyncState.trainOperatingStates.get(trainId);
@@ -119,7 +120,7 @@ public final class TrainDiagnosticsCommand {
 
             source.sendFeedback(() -> Text.literal(String.format(
                     "#%d Train=%d Siding=%d 距離=%.1fm 座標=(%.1f, %.1f, %.1f)",
-                    i + 1, trainId, nearby.sidingId, nearby.distance,
+                    resultIndex, trainId, nearby.sidingId, nearby.distance,
                     nearby.position.x, nearby.position.y, nearby.position.z
             )), false);
             source.sendFeedback(() -> Text.literal(String.format(
