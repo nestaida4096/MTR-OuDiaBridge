@@ -223,11 +223,24 @@ public final class Mtr4RuntimeAccess {
 
         Object head = invokeOptional(vehicle, "getHeadPositionAndTiltAngle");
         double[] coordinates = findCoordinates(head, 0);
+        String positionStatus;
+        if (head == null) {
+            Object railProgress = tryReadField(vehicle, "railProgress");
+            Object path = tryReadField(extra, "immutablePath");
+            int pathSize = path instanceof Collection<?> collection ? collection.size() : -1;
+            positionStatus = "head-null(railProgress=" + railProgress + ",pathSize=" + pathSize
+                    + ",onRoute=" + onRoute + ")";
+        } else if (coordinates == null) {
+            positionStatus = "coordinates-unreadable(" + head.getClass().getName() + ")";
+        } else {
+            positionStatus = "ok";
+        }
         return new VehicleSnapshot(id, dimension, onRoute, moving, departureIndex,
                 route, station, nextStation, destination,
                 coordinates == null ? Double.NaN : coordinates[0],
                 coordinates == null ? Double.NaN : coordinates[1],
-                coordinates == null ? Double.NaN : coordinates[2]);
+                coordinates == null ? Double.NaN : coordinates[2],
+                positionStatus);
     }
 
     private static double[] findCoordinates(Object value, int depth) {
@@ -322,7 +335,7 @@ public final class Mtr4RuntimeAccess {
     public record VehicleSnapshot(long id, String dimension, boolean onRoute, boolean moving,
                                   long departureIndex, String route, String station,
                                   String nextStation, String destination,
-                                  double x, double y, double z) {
+                                  double x, double y, double z, String positionStatus) {
         public boolean hasPosition() {
             return Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z);
         }
