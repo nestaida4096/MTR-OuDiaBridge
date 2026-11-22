@@ -262,7 +262,12 @@ public final class Mtr4RuntimeAccess {
     }
 
     private static Double coordinate(Object target, String fieldName, String methodName) {
-        Object value = invokeOptional(target, methodName);
+        // Transport-Simulation-Core 4.0.5 uses record components in Vector:
+        // Vector.x(), Vector.y(), Vector.z(). Older versions may expose getX().
+        Object value = invokeOptional(target, fieldName);
+        if (!(value instanceof Number)) {
+            value = invokeOptional(target, methodName);
+        }
         if (!(value instanceof Number)) {
             try {
                 Field field = findField(target.getClass(), fieldName);
