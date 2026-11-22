@@ -4,7 +4,6 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import mtr.data.RailwayData;
 import mtr.data.Siding;
-import mtr.data.Train;
 import mtr.data.TrainServer;
 import nest.oudiabridge.mixin.SidingAccessor;
 import nest.oudiabridge.mixin.TrainDiagnosticsAccessor;
@@ -17,7 +16,6 @@ import net.minecraft.util.math.Vec3d;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 public final class TrainDiagnosticsCommand {
     private static final int DEFAULT_RADIUS = 64;
@@ -100,6 +98,7 @@ public final class TrainDiagnosticsCommand {
                 rawStopIndex = nearby.train.path.get(nextStoppingIndex).stopIndex;
             }
 
+            final int rawIndexForOutput = rawStopIndex;
             final int offset = operatingState != null && operatingState.turnaroundStopIndexOffset > 0
                     ? operatingState.turnaroundStopIndexOffset : 1;
             final int scheduleIndex = Math.max(0, rawStopIndex - offset);
@@ -130,7 +129,7 @@ public final class TrainDiagnosticsCommand {
             )), false);
             source.sendFeedback(() -> Text.literal(String.format(
                     "  ダイヤID=%s 駅Index=%d (MTR raw=%d) 駅=%s 到着=%s 発車=%s",
-                    matched, scheduleIndex, rawStopIndex, stationName, arrival, departure
+                    matched, scheduleIndex, rawIndexForOutput, stationName, arrival, departure
             )), false);
         }
 
