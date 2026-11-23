@@ -105,10 +105,9 @@ public final class Mtr4RuntimeAccess {
                         ? null : (DepotAccessor) (Object) matchedDepot;
                 long repeatDepartures = depotState == null
                         ? -1L : depotState.oudiaBridge$getRepeatDepartures();
-                boolean useRealTime = depotState != null && depotState.oudiaBridge$getUseRealTime();
-                boolean repeatInfinitely = depotState != null && depotState.oudiaBridge$getRepeatInfinitely();
-                double timeOffsetForRepeating = depotState == null
-                        ? Double.NaN : depotState.oudiaBridge$getTimeOffsetForRepeating();
+                boolean useRealTime = matchedDepot != null && matchedDepot.getUseRealTime();
+                boolean repeatInfinitely = matchedDepot != null && matchedDepot.getRepeatInfinitely();
+                double timeOffsetForRepeating = sidingState.oudiaBridge$getTimeOffsetForRepeating();
                 Object sidingArea = sidingState.oudiaBridge$getArea();
                 boolean sidingAreaMatchesDepot = matchedDepot != null && sidingArea == matchedDepot;
                 String sidingAreaType = sidingArea == null ? "null" : sidingArea.getClass().getName();
