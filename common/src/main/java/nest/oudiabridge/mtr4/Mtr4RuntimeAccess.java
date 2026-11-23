@@ -71,7 +71,7 @@ public final class Mtr4RuntimeAccess {
         double railProgress = vehicleState.getRailProgress();
         double distanceToNextAtoStop = findDistanceToNextAtoStop(vehicleState, extra, railProgress);
         long elapsedDwellMillis = Math.max(0, vehicleState.getElapsedDwellTime());
-        long recordedSidingDepartureMillis = vehicleState.getSidingDepartureTime();
+        long recordedSidingDepartureMillis = vehicleState.oudiaBridge$getSidingDepartureTime();
         double routeElapsedMillis = siding.getTimeAlongRoute(railProgress);
         long estimatedDepartureMillis = onRoute && Double.isFinite(routeElapsedMillis) && routeElapsedMillis >= 0
                 ? simulationMillis - Math.round(routeElapsedMillis + elapsedDwellMillis)
