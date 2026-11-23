@@ -19,5 +19,5 @@ public interface VehicleSchemaAccessor {
     long getElapsedDwellTime();
 
     @Accessor(value = "sidingDepartureTime", remap = false)
-    long getSidingDepartureTime();
+    long oudiaBridge$getSidingDepartureTime();
 }
