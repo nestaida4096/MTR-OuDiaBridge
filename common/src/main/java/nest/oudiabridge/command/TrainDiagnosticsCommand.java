@@ -208,8 +208,8 @@ public final class TrainDiagnosticsCommand {
         final List<Simulator> simulators;
         try {
             simulators = Mtr4RuntimeAccess.getSimulators();
-        } catch (RuntimeException exception) {
-            source.sendFailure(Component.literal("MTR4 runtime access failed: " + exception.getMessage()));
+        } catch (Throwable throwable) {
+            CommandErrorReporter.report(source, "MTR4 runtime access failed", throwable);
             return 0;
         }
         if (simulators.isEmpty()) {
@@ -224,7 +224,7 @@ public final class TrainDiagnosticsCommand {
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) ->
                 source.getServer().execute(() -> {
                     if (error != null) {
-                        source.sendFailure(Component.literal("Failed to read MTR4 vehicles: " + rootMessage(error)));
+                        CommandErrorReporter.report(source, "Failed to read MTR4 vehicles", error);
                         return;
                     }
 
@@ -287,8 +287,8 @@ public final class TrainDiagnosticsCommand {
         final List<Simulator> simulators;
         try {
             simulators = Mtr4RuntimeAccess.getSimulators();
-        } catch (RuntimeException exception) {
-            source.sendFailure(Component.literal("MTR4 runtime access failed: " + exception.getMessage()));
+        } catch (Throwable throwable) {
+            CommandErrorReporter.report(source, "MTR4 runtime access failed", throwable);
             return 0;
         }
         if (simulators.isEmpty()) {
@@ -303,7 +303,7 @@ public final class TrainDiagnosticsCommand {
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) ->
                 source.getServer().execute(() -> {
                     if (error != null) {
-                        source.sendFailure(Component.literal("Failed to read MTR4 vehicles: " + rootMessage(error)));
+                        CommandErrorReporter.report(source, "Failed to read MTR4 vehicles", error);
                         return;
                     }
 
@@ -419,8 +419,8 @@ public final class TrainDiagnosticsCommand {
         final List<Simulator> simulators;
         try {
             simulators = Mtr4RuntimeAccess.getSimulators();
-        } catch (RuntimeException exception) {
-            source.sendFailure(Component.literal("MTR4 runtime access failed: " + exception.getMessage()));
+        } catch (Throwable throwable) {
+            CommandErrorReporter.report(source, "MTR4 runtime access failed", throwable);
             return 0;
         }
         if (simulators.isEmpty()) {
@@ -435,7 +435,7 @@ public final class TrainDiagnosticsCommand {
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> {
             source.getServer().execute(() -> {
                 if (error != null) {
-                    source.sendFailure(Component.literal("Failed to read MTR4 vehicles: " + rootMessage(error)));
+                    CommandErrorReporter.report(source, "Failed to read MTR4 vehicles", error);
                     return;
                 }
 
@@ -550,8 +550,8 @@ public final class TrainDiagnosticsCommand {
         final List<Simulator> simulators;
         try {
             simulators = Mtr4RuntimeAccess.getSimulators();
-        } catch (RuntimeException exception) {
-            source.sendFailure(Component.literal("MTR4 runtime access failed: " + exception.getMessage()));
+        } catch (Throwable throwable) {
+            CommandErrorReporter.report(source, "MTR4 runtime access failed", throwable);
             return 0;
         }
 
@@ -572,7 +572,7 @@ public final class TrainDiagnosticsCommand {
             MinecraftServer server = source.getServer();
             server.execute(() -> {
                 if (error != null) {
-                    source.sendFailure(Component.literal("Failed to read MTR4 vehicles: " + rootMessage(error)));
+                    CommandErrorReporter.report(source, "Failed to read MTR4 vehicles", error);
                     return;
                 }
 
@@ -676,9 +676,4 @@ public final class TrainDiagnosticsCommand {
         return value == null || value.isBlank() ? "-" : value;
     }
 
-    private static String rootMessage(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null) current = current.getCause();
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
-    }
 }
