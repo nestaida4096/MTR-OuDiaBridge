@@ -9,12 +9,4 @@ public interface DepotAccessor {
     @Accessor(value = "repeatDepartures", remap = false)
     long oudiaBridge$getRepeatDepartures();
 
-    @org.spongepowered.asm.mixin.gen.Invoker(value = "getUseRealTime", remap = false)
-    boolean oudiaBridge$getUseRealTime();
-
-    @org.spongepowered.asm.mixin.gen.Invoker(value = "getRepeatInfinitely", remap = false)
-    boolean oudiaBridge$getRepeatInfinitely();
-
-    @Accessor(value = "timeOffsetForRepeating", remap = false)
-    double oudiaBridge$getTimeOffsetForRepeating();
 }
