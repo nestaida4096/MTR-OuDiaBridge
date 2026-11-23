@@ -16,4 +16,7 @@ public interface SidingAccessor {
 
     @org.spongepowered.asm.mixin.gen.Invoker(value = "getRepeatInterval", remap = false)
     long oudiaBridge$getRepeatInterval(long interval);
+
+    @Accessor(value = "timeOffsetForRepeating", remap = false)
+    double oudiaBridge$getTimeOffsetForRepeating();
 }
