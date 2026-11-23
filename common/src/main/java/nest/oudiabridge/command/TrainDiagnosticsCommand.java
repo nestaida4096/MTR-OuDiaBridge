@@ -611,9 +611,6 @@ public final class TrainDiagnosticsCommand {
                             "[Siding] getRepeatInterval(0)=" + state.repeatIntervalZero()
                                     + " | getRepeatInterval(86400000)=" + state.repeatIntervalDay()), false);
                     source.sendSuccess(() -> Component.literal(
-                            "[Siding] areaMatchesDepot=" + state.sidingAreaMatchesDepot()
-                                    + " | areaType=" + state.sidingAreaType()), false);
-                    source.sendSuccess(() -> Component.literal(
                             "[Vehicle] sidingDepartureTime=" + state.sidingDepartureTime()
                                     + " | departureIndex=" + state.departureIndex()), false);
                     source.sendSuccess(() -> Component.literal(
