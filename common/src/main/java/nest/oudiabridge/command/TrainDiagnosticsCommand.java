@@ -10,6 +10,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.phys.Vec3;
 import nest.oudiabridge.mtr4.Mtr4RuntimeAccess;
+import nest.oudiabridge.command.CommandErrorReporter;
 import org.mtr.core.simulation.Simulator;
 import nest.oudiabridge.mtr4.OudiaBridgeSavedData;
 import nest.oudiabridge.mtr4.OudiaScheduleAnalyzer;
@@ -102,8 +103,8 @@ public final class TrainDiagnosticsCommand {
             result.failures().forEach((file, message) ->
                     source.sendFailure(Component.literal(file + ": " + message)));
             return result.loadedCount();
-        } catch (Exception exception) {
-            source.sendFailure(Component.literal("OuDia timetable reload failed: " + exception.getMessage()));
+        } catch (Throwable throwable) {
+            CommandErrorReporter.report(source, "OuDia timetable reload failed", throwable);
             return 0;
         }
     }
@@ -130,8 +131,8 @@ public final class TrainDiagnosticsCommand {
         final List<Simulator> simulators;
         try {
             simulators = Mtr4RuntimeAccess.getSimulators();
-        } catch (RuntimeException exception) {
-            source.sendFailure(Component.literal("MTR4 runtime access failed: " + exception.getMessage()));
+        } catch (Throwable throwable) {
+            CommandErrorReporter.report(source, "MTR4 runtime access failed", throwable);
             return 0;
         }
         if (simulators.isEmpty()) {
@@ -146,7 +147,7 @@ public final class TrainDiagnosticsCommand {
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) ->
                 source.getServer().execute(() -> {
                     if (error != null) {
-                        source.sendFailure(Component.literal("Failed to read MTR4 vehicles: " + rootMessage(error)));
+                        CommandErrorReporter.report(source, "Failed to read MTR4 vehicles", error);
                         return;
                     }
 
