@@ -604,7 +604,15 @@ public final class TrainDiagnosticsCommand {
                                     + " | found=" + state.depotFound()
                                     + " | repeatDepartures=" + state.repeatDepartures()), false);
                     source.sendSuccess(() -> Component.literal(
-                            "[Siding] getRepeatInterval(0)=" + state.repeatInterval()), false);
+                            "[Depot] useRealTime=" + state.useRealTime()
+                                    + " | repeatInfinitely=" + state.repeatInfinitely()
+                                    + " | timeOffsetForRepeating=" + state.timeOffsetForRepeating()), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "[Siding] getRepeatInterval(0)=" + state.repeatIntervalZero()
+                                    + " | getRepeatInterval(86400000)=" + state.repeatIntervalDay()), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "[Siding] areaMatchesDepot=" + state.sidingAreaMatchesDepot()
+                                    + " | areaType=" + state.sidingAreaType()), false);
                     source.sendSuccess(() -> Component.literal(
                             "[Vehicle] sidingDepartureTime=" + state.sidingDepartureTime()
                                     + " | departureIndex=" + state.departureIndex()), false);

@@ -8,4 +8,11 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 public interface DepotAccessor {
     @Accessor(value = "repeatDepartures", remap = false)
     long oudiaBridge$getRepeatDepartures();
+
+    boolean getUseRealTime();
+
+    boolean getRepeatInfinitely();
+
+    @Accessor(value = "timeOffsetForRepeating", remap = false)
+    double oudiaBridge$getTimeOffsetForRepeating();
 }

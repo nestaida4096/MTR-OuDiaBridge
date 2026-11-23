@@ -101,10 +101,19 @@ public final class Mtr4RuntimeAccess {
                     }
                 }
 
-                long repeatDepartures = matchedDepot == null
-                        ? -1L
-                        : ((DepotAccessor) (Object) matchedDepot).oudiaBridge$getRepeatDepartures();
-                long repeatInterval = sidingState.oudiaBridge$getRepeatInterval(0);
+                DepotAccessor depotState = matchedDepot == null
+                        ? null : (DepotAccessor) (Object) matchedDepot;
+                long repeatDepartures = depotState == null
+                        ? -1L : depotState.oudiaBridge$getRepeatDepartures();
+                boolean useRealTime = depotState != null && depotState.getUseRealTime();
+                boolean repeatInfinitely = depotState != null && depotState.getRepeatInfinitely();
+                double timeOffsetForRepeating = depotState == null
+                        ? Double.NaN : depotState.oudiaBridge$getTimeOffsetForRepeating();
+                Object sidingArea = sidingState.oudiaBridge$getArea();
+                boolean sidingAreaMatchesDepot = matchedDepot != null && sidingArea == matchedDepot;
+                String sidingAreaType = sidingArea == null ? "null" : sidingArea.getClass().getName();
+                long repeatIntervalZero = sidingState.oudiaBridge$getRepeatInterval(0);
+                long repeatIntervalDay = sidingState.oudiaBridge$getRepeatInterval(86_400_000L);
                 long sidingDepartureTime =
                         ((VehicleSchemaAccessor) (Object) vehicle).oudiaBridge$getSidingDepartureTime();
 
@@ -118,7 +127,13 @@ public final class Mtr4RuntimeAccess {
                         gameMillisPerDay,
                         millisOfGameMidnight,
                         repeatDepartures,
-                        repeatInterval,
+                        repeatIntervalZero,
+                        repeatIntervalDay,
+                        useRealTime,
+                        repeatInfinitely,
+                        timeOffsetForRepeating,
+                        sidingAreaMatchesDepot,
+                        sidingAreaType,
                         sidingDepartureTime,
                         vehicle.getDepartureIndex(),
                         matchedDepot != null
@@ -208,7 +223,10 @@ public final class Mtr4RuntimeAccess {
     public record TimeDiagnosticsSnapshot(long vehicleId, String dimension, String depotName,
                                            long currentMillis, long lastMillis, long gameMillis,
                                            long gameMillisPerDay, long millisOfGameMidnight,
-                                           long repeatDepartures, long repeatInterval,
+                                           long repeatDepartures, long repeatIntervalZero,
+                                           long repeatIntervalDay, boolean useRealTime,
+                                           boolean repeatInfinitely, double timeOffsetForRepeating,
+                                           boolean sidingAreaMatchesDepot, String sidingAreaType,
                                            long sidingDepartureTime, long departureIndex,
                                            boolean depotFound) {
     }
