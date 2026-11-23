@@ -108,9 +108,6 @@ public final class Mtr4RuntimeAccess {
                 boolean useRealTime = matchedDepot != null && matchedDepot.getUseRealTime();
                 boolean repeatInfinitely = matchedDepot != null && matchedDepot.getRepeatInfinitely();
                 double timeOffsetForRepeating = sidingState.oudiaBridge$getTimeOffsetForRepeating();
-                Object sidingArea = sidingState.oudiaBridge$getArea();
-                boolean sidingAreaMatchesDepot = matchedDepot != null && sidingArea == matchedDepot;
-                String sidingAreaType = sidingArea == null ? "null" : sidingArea.getClass().getName();
                 long repeatIntervalZero = sidingState.oudiaBridge$getRepeatInterval(0);
                 long repeatIntervalDay = sidingState.oudiaBridge$getRepeatInterval(86_400_000L);
                 long sidingDepartureTime =
@@ -131,8 +128,6 @@ public final class Mtr4RuntimeAccess {
                         useRealTime,
                         repeatInfinitely,
                         timeOffsetForRepeating,
-                        sidingAreaMatchesDepot,
-                        sidingAreaType,
                         sidingDepartureTime,
                         vehicle.getDepartureIndex(),
                         matchedDepot != null
@@ -225,7 +220,6 @@ public final class Mtr4RuntimeAccess {
                                            long repeatDepartures, long repeatIntervalZero,
                                            long repeatIntervalDay, boolean useRealTime,
                                            boolean repeatInfinitely, double timeOffsetForRepeating,
-                                           boolean sidingAreaMatchesDepot, String sidingAreaType,
                                            long sidingDepartureTime, long departureIndex,
                                            boolean depotFound) {
     }
