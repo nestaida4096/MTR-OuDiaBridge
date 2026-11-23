@@ -10,4 +10,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 public interface SidingAccessor {
     @Accessor(value = "vehicles", remap = false)
     ObjectArraySet<Vehicle> getVehicles();
+
+    @org.spongepowered.asm.mixin.gen.Invoker(value = "getRepeatInterval", remap = false)
+    long oudiaBridge$getRepeatInterval(long interval);
 }

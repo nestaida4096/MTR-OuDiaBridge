@@ -85,6 +85,12 @@ public final class TrainDiagnosticsCommand {
                                                 context.getSource(),
                                                 LongArgumentType.getLong(context, "vehicleId"),
                                                 StringArgumentType.getString(context, "currentTime"))))))
+                .then(literal("time-debug")
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
+                                .executes(context -> diagnoseTimeState(
+                                        context.getSource(),
+                                        LongArgumentType.getLong(context, "vehicleId")))))
                 .then(literal("trains")
                         .requires(source -> source.hasPermission(2))
                         .executes(context -> execute(context.getSource(), 64))
@@ -537,6 +543,80 @@ public final class TrainDiagnosticsCommand {
         });
         source.sendSuccess(() -> Component.literal(
                 "Collecting MTR4 vehicle state for OuDia timing analysis..."), false);
+        return 1;
+    }
+
+    /**
+     * Prints raw MTR4 clock and departure-schedule values captured in one simulator tick task.
+     * No timestamp conversion or schedule matching is performed.
+     */
+    private static int diagnoseTimeState(CommandSourceStack source, long vehicleId) {
+        final List<Simulator> simulators;
+        try {
+            simulators = Mtr4RuntimeAccess.getSimulators();
+        } catch (Throwable throwable) {
+            CommandErrorReporter.report(source, "MTR4 runtime access failed", throwable);
+            return 0;
+        }
+        if (simulators.isEmpty()) {
+            source.sendFailure(Component.literal("MTR4 simulator is not initialized yet."));
+            return 0;
+        }
+
+        List<CompletableFuture<Mtr4RuntimeAccess.TimeDiagnosticsSnapshot>> futures = new ArrayList<>();
+        for (Simulator simulator : simulators) {
+            futures.add(Mtr4RuntimeAccess.collectTimeDiagnostics(simulator, vehicleId));
+        }
+
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) ->
+                source.getServer().execute(() -> {
+                    if (error != null) {
+                        CommandErrorReporter.report(source, "Failed to read MTR4 time diagnostics", error);
+                        return;
+                    }
+
+                    Mtr4RuntimeAccess.TimeDiagnosticsSnapshot selected = null;
+                    for (CompletableFuture<Mtr4RuntimeAccess.TimeDiagnosticsSnapshot> future : futures) {
+                        Mtr4RuntimeAccess.TimeDiagnosticsSnapshot candidate = future.join();
+                        if (candidate != null) {
+                            selected = candidate;
+                            break;
+                        }
+                    }
+                    if (selected == null) {
+                        source.sendFailure(Component.literal("MTR4 vehicle not found: " + vehicleId));
+                        return;
+                    }
+
+                    final Mtr4RuntimeAccess.TimeDiagnosticsSnapshot state = selected;
+                    source.sendSuccess(() -> Component.literal(
+                            "MTR4 Time Diagnostics (raw values, same simulator-thread capture) | vehicle="
+                                    + state.vehicleId() + " | dimension=" + state.dimension()), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "[Simulator] currentMillis=" + state.currentMillis()
+                                    + " | lastMillis=" + state.lastMillis()
+                                    + " | gameMillis=" + state.gameMillis()), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "[Simulator] gameMillisPerDay=" + state.gameMillisPerDay()
+                                    + " | millisOfGameMidnight=" + state.millisOfGameMidnight()), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "[Depot] depot=" + emptyAsDash(state.depotName())
+                                    + " | found=" + state.depotFound()
+                                    + " | repeatDepartures=" + state.repeatDepartures()), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "[Siding] getRepeatInterval(0)=" + state.repeatInterval()), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "[Vehicle] sidingDepartureTime=" + state.sidingDepartureTime()
+                                    + " | departureIndex=" + state.departureIndex()), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "[Derived] currentMillis-lastMillis="
+                                    + (state.currentMillis() - state.lastMillis())), false);
+                    source.sendSuccess(() -> Component.literal(
+                            "Values are raw MTR4 values; no Unix-time conversion or OuDia matching was applied."), false);
+                }));
+
+        source.sendSuccess(() -> Component.literal(
+                "Collecting MTR4 simulator and vehicle clock values on the simulator thread..."), false);
         return 1;
     }
 

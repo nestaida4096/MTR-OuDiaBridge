@@ -6,8 +6,11 @@ import nest.oudiabridge.mixin.InitAccessor;
 import nest.oudiabridge.mixin.MainAccessor;
 import nest.oudiabridge.mixin.SidingAccessor;
 import nest.oudiabridge.mixin.VehicleSchemaAccessor;
+import nest.oudiabridge.mixin.SimulatorAccessor;
+import nest.oudiabridge.mixin.DepotAccessor;
 import org.mtr.core.Main;
 import org.mtr.core.data.PathData;
+import org.mtr.core.data.Depot;
 import org.mtr.core.data.Siding;
 import org.mtr.core.data.Vehicle;
 import org.mtr.core.data.VehicleExtraData;
@@ -55,6 +58,74 @@ public final class Mtr4RuntimeAccess {
             }
         }
         return result;
+    }
+
+    /**
+     * Captures simulator, depot, siding and vehicle schedule clocks in one simulator-thread task.
+     * This is read-only and deliberately returns raw values without interpreting their time base.
+     */
+    public static CompletableFuture<TimeDiagnosticsSnapshot> collectTimeDiagnostics(
+            Simulator simulator, long vehicleId) {
+        CompletableFuture<TimeDiagnosticsSnapshot> future = new CompletableFuture<>();
+        simulator.run(() -> {
+            try {
+                future.complete(collectTimeDiagnosticsNow(simulator, vehicleId));
+            } catch (Throwable throwable) {
+                future.completeExceptionally(throwable);
+            }
+        });
+        return future;
+    }
+
+    private static TimeDiagnosticsSnapshot collectTimeDiagnosticsNow(Simulator simulator, long vehicleId) {
+        SimulatorAccessor simulatorState = (SimulatorAccessor) (Object) simulator;
+        long currentMillis = simulator.getCurrentMillis();
+        long lastMillis = simulatorState.oudiaBridge$getLastMillis();
+        long gameMillis = simulatorState.oudiaBridge$getGameMillis();
+        long gameMillisPerDay = simulator.getGameMillisPerDay();
+        long millisOfGameMidnight = simulator.getMillisOfGameMidnight();
+
+        for (Siding siding : simulator.sidings) {
+            SidingAccessor sidingState = (SidingAccessor) (Object) siding;
+            ObjectArraySet<Vehicle> vehicles = sidingState.getVehicles();
+            for (Vehicle vehicle : vehicles) {
+                if (vehicle.getId() != vehicleId) {
+                    continue;
+                }
+
+                Depot matchedDepot = null;
+                for (Depot depot : simulator.depots) {
+                    if (depot.savedRails.contains(siding)) {
+                        matchedDepot = depot;
+                        break;
+                    }
+                }
+
+                long repeatDepartures = matchedDepot == null
+                        ? -1L
+                        : ((DepotAccessor) (Object) matchedDepot).oudiaBridge$getRepeatDepartures();
+                long repeatInterval = sidingState.oudiaBridge$getRepeatInterval(0);
+                long sidingDepartureTime =
+                        ((VehicleSchemaAccessor) (Object) vehicle).oudiaBridge$getSidingDepartureTime();
+
+                return new TimeDiagnosticsSnapshot(
+                        vehicleId,
+                        simulator.dimension,
+                        siding.getDepotName(),
+                        currentMillis,
+                        lastMillis,
+                        gameMillis,
+                        gameMillisPerDay,
+                        millisOfGameMidnight,
+                        repeatDepartures,
+                        repeatInterval,
+                        sidingDepartureTime,
+                        vehicle.getDepartureIndex(),
+                        matchedDepot != null
+                );
+            }
+        }
+        return null;
     }
 
     private static VehicleSnapshot snapshot(Simulator simulator, Siding siding, Vehicle vehicle) {
@@ -132,6 +203,14 @@ public final class Mtr4RuntimeAccess {
                 + ",pathFirst=" + path.get(0).getStartDistance()
                 + ",pathLast=" + path.get(path.size() - 1).getStartDistance()
                 + ",linearIndex=" + linearIndex + ",pathSorted=" + sorted;
+    }
+
+    public record TimeDiagnosticsSnapshot(long vehicleId, String dimension, String depotName,
+                                           long currentMillis, long lastMillis, long gameMillis,
+                                           long gameMillisPerDay, long millisOfGameMidnight,
+                                           long repeatDepartures, long repeatInterval,
+                                           long sidingDepartureTime, long departureIndex,
+                                           boolean depotFound) {
     }
 
     public record VehicleSnapshot(long id, String dimension, boolean onRoute, boolean moving,
