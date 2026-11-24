@@ -226,6 +226,7 @@ currentMillis-lastMillis=50
 - [ ] 修正済みコードを含む最新コミットをゲーム環境へ反映。
 - [ ] `/oudiabridge time-debug <vehicleId>` の新しい出力を取得。
 - [ ] `getRepeatInterval(86400000)` の値と Depot の設定値の関係を確認。
+- [ ] Siding の実際の `departures` 配列と `Vehicle.sidingDepartureTime` / `departureIndex` の対応を確認（配列サイズ・該当インデックス値・一致判定を診断に追加）。
 - [ ] `useRealTime` と `repeatInfinitely` の値ごとに時刻計算を比較。
 - [ ] `timeOffsetForRepeating` と `repeatDepartures` の関係を確認。
 - [ ] 車庫発車前・発車直後・走行中の複数タイミングで同じ車両を測定。
