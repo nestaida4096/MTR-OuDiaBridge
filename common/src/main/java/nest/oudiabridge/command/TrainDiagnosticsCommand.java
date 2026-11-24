@@ -611,6 +611,12 @@ public final class TrainDiagnosticsCommand {
                             "[Siding] getRepeatInterval(0)=" + state.repeatIntervalZero()
                                     + " | getRepeatInterval(86400000)=" + state.repeatIntervalDay()), false);
                     source.sendSuccess(() -> Component.literal(
+                            "[Siding] departures.size=" + state.departureCount()
+                                    + " | departures[departureIndex]=" + state.indexedDeparture()
+                                    + " | matchesVehicleTime="
+                                    + (state.indexedDeparture() >= 0
+                                    && state.indexedDeparture() == state.sidingDepartureTime())), false);
+                    source.sendSuccess(() -> Component.literal(
                             "[Vehicle] sidingDepartureTime=" + state.sidingDepartureTime()
                                     + " | departureIndex=" + state.departureIndex()), false);
                     source.sendSuccess(() -> Component.literal(
