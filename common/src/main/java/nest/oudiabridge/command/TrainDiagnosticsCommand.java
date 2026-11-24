@@ -183,8 +183,9 @@ public final class TrainDiagnosticsCommand {
             if (departures.size() > shown) source.sendSuccess(() -> Component.literal(
                     "... and " + (departures.size() - shown) + " more upcoming departure(s)."), false);
         }
+        final int skippedCount = skipped;
         source.sendSuccess(() -> Component.literal("Upcoming=" + departures.size()
-                + " | trains without a usable first-station time=" + skipped + " | displayed limit=" + limit), false);
+                + " | trains without a usable first-station time=" + skippedCount + " | displayed limit=" + limit), false);
         return departures.size();
     }
 
