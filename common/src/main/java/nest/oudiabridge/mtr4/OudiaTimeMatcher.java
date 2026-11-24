@@ -98,7 +98,11 @@ public final class OudiaTimeMatcher {
                     ? "Station pair matched, but its schedule times are missing or invalid"
                     : "No train contains the current/next station pair"
                 : "Candidates ranked by distance from the scheduled current-to-next-station time window";
+        List<Candidate> insideCandidates = candidates.stream()
+                .filter(Candidate::insideScheduledInterval)
+                .toList();
         return new Result(true, clockText, candidates.size(), pairMatchesWithoutTimes,
+                List.copyOf(insideCandidates),
                 List.copyOf(candidates.subList(0, Math.min(12, candidates.size()))), reason);
     }
 
@@ -204,10 +208,10 @@ public final class OudiaTimeMatcher {
     }
 
     public record Result(boolean available, String clockText, int candidateCount,
-                         int pairMatchesWithoutTimes, List<Candidate> topCandidates,
-                         String reason) {
+                         int pairMatchesWithoutTimes, List<Candidate> insideCandidates,
+                         List<Candidate> topCandidates, String reason) {
         private static Result failure(String clockText, String reason) {
-            return new Result(false, clockText, 0, 0, List.of(), reason);
+            return new Result(false, clockText, 0, 0, List.of(), List.of(), reason);
         }
     }
 
