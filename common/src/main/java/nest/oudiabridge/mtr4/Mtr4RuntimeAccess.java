@@ -2,6 +2,7 @@ package nest.oudiabridge.mtr4;
 
 import org.mtr.libraries.it.unimi.dsi.fastutil.objects.ObjectArraySet;
 import org.mtr.libraries.it.unimi.dsi.fastutil.objects.ObjectImmutableList;
+import org.mtr.libraries.it.unimi.dsi.fastutil.longs.LongArrayList;
 import nest.oudiabridge.mixin.InitAccessor;
 import nest.oudiabridge.mixin.MainAccessor;
 import nest.oudiabridge.mixin.SidingAccessor;
@@ -112,6 +113,10 @@ public final class Mtr4RuntimeAccess {
                 long repeatIntervalDay = sidingState.oudiaBridge$getRepeatInterval(86_400_000L);
                 long sidingDepartureTime =
                         ((VehicleSchemaAccessor) (Object) vehicle).oudiaBridge$getSidingDepartureTime();
+                LongArrayList departures = sidingState.oudiaBridge$getDepartures();
+                long indexedDeparture = vehicle.getDepartureIndex() >= 0
+                        && vehicle.getDepartureIndex() < departures.size()
+                        ? departures.getLong((int) vehicle.getDepartureIndex()) : -1L;
 
                 return new TimeDiagnosticsSnapshot(
                         vehicleId,
@@ -130,6 +135,8 @@ public final class Mtr4RuntimeAccess {
                         timeOffsetForRepeating,
                         sidingDepartureTime,
                         vehicle.getDepartureIndex(),
+                        departures.size(),
+                        indexedDeparture,
                         matchedDepot != null
                 );
             }
@@ -221,6 +228,7 @@ public final class Mtr4RuntimeAccess {
                                            long repeatIntervalDay, boolean useRealTime,
                                            boolean repeatInfinitely, double timeOffsetForRepeating,
                                            long sidingDepartureTime, long departureIndex,
+                                           int departureCount, long indexedDeparture,
                                            boolean depotFound) {
     }
 
