@@ -149,10 +149,9 @@ MTR4 の車両が、OuDia 時刻表上のどの列車に相当するかを特定
 - [x] `/oudiabridge depot-match` による車庫発車候補の診断を用意。
 
 ### 未実施・未確認
-- [ ] 自動対応付けの誤判定がないか、複数の路線・列車で検証。
-- [ ] 同じ駅間を走る複数列車を正しく区別できるか検証。
+- [ ] `/oudiabridge time-bind` の一意判定が、複数路線・複数時刻表・同一駅間の複数列車でも誤紐付けしないことを追加検証。
 - [ ] 車庫発車時刻を使った対応付けが、実際の MTR4 時刻基準と一致するか検証。
-- [ ] 保存済み紐付けが再起動後も正しく復元されることを確認。
+- [x] 今回新規作成した紐付け（車両 `-5717734959325163916` → `あえい#192`）が、シングルプレイサーバーの完全停止・同一ワールド再起動後に復元されることを確認。
 - [ ] 車両 ID の再利用・車両削除時の古い紐付けの扱いを確認。
 
 ### 保留・後回し
@@ -253,11 +252,11 @@ matchesVehicleTime=true
 ### 現時点の結論
 - [x] 通常時刻（`useRealTime=true`）では、発車時刻配列と車両記録値は同じ UTC 日内ミリ秒の基準で保持されている。
 - [x] OuDia の時刻（日本時間）と比較するときは、UTC 日内ミリ秒を `ZoneId.systemDefault()` のローカル日付・時刻に対応付ける必要がある。
-- [ ] 日付跨ぎ・深夜時刻・別設定（`useRealTime=false` / `repeatInfinitely=true`）の実測は未完了。
+- [ ] 日付跨ぎ・深夜時刻、および `useRealTime=true` を維持した `repeatInfinitely=true` の実測は未完了。
 
 ### 次に実施すること
 - [ ] `/oudiabridge depot-match -919908888133369614` を実行し、車庫駅名・路線名・OuDia 発車時刻候補・差分を確認。現在 `trains` で `oudia=unmatched` となる直接原因を切り分ける。
-- [ ] `useRealTime=false` / `repeatInfinitely=true` の別設定で時刻基準を検証。
+- [ ] `useRealTime=true` を維持したまま `repeatInfinitely=true` の時刻基準を検証。
 - [ ] 深夜帯・日付跨ぎの発車時刻で式が成立するか確認。
 - [ ] 実測結果に基づき、Stage 3 の車庫発車マッチャーの候補判定を検証。
 - [ ] `/oudiabridge time-debug <vehicleId>` の新しい出力を取得。
@@ -265,7 +264,7 @@ matchesVehicleTime=true
 - [x] 更新版の `/oudiabridge time-debug` で `departures[departureIndex]` と `sidingDepartureTime` が一致することを確認。
 - [x] MTR4 の `currentMillis` は Unix epoch ミリ秒として扱い、`currentMillis % 86400000` が UTC 時刻の日内ミリ秒になることをログ時刻と照合。
 - [x] `sidingDepartureTime` / `departures[]` は UTC 00:00 からの当日発車ミリ秒として扱う根拠を確認（MTR4 Siding の departures コメント、および `useRealTime=true` の実測）。
-- [ ] `useRealTime` と `repeatInfinitely` の値ごとに時刻計算を比較。
+- [ ] `useRealTime=true` の条件下で `repeatInfinitely` の設定差による時刻計算を比較。
 - [ ] `timeOffsetForRepeating` と `repeatDepartures` の関係を確認。
 - [ ] 車庫発車前・発車直後・走行中の複数タイミングで同じ車両を測定。
 - [ ] MTR4 の departure 生成処理と `Vehicle.startUp` の引数の意味を、対象バージョンのソースまたはバイトコードで再確認。
@@ -303,12 +302,16 @@ matchesVehicleTime=true
 - [x] `/oudiabridge time-match` を用意。
 - [x] `/oudiabridge time-bind <vehicleId>` を追加。全読み込み時刻表から予定駅間時刻内の候補を集約し、唯一の候補の場合だけ SavedData に紐付ける。
 - [x] 既存バインドの上書きを禁止し、候補なし・複数候補・路線外車両では保存しない。
+- [x] 車両 `-5717734959325163916` の `目白 → 黒金台` 区間で、16:01:00 に `あえい#192` が唯一の `inside=true` 候補となることをゲーム内で確認。
+- [x] 同車両に対する `/oudiabridge time-bind` が `あえい#192` を保存し、車両一覧で `oudia=あえい#192(stored)` と再取得できることを確認。
+- [x] 同車両の紐付けが駅間移動後も維持され、シングルプレイサーバーの停止・同一ワールド再起動後にも同じ車両 ID と `あえい#192(stored)` が復元されることを確認。
+- [ ] `time-bind` は手動実行の一回限りの処理であり、バックグラウンドでの継続的な自動紐付けは未実装。
 - [x] `/oudiabridge timing` による指定時刻での運行時刻分析を用意。
 - [x] 車両速度・次の ATO 停止位置までの距離などを読み取り、所要時間の参考値を計算する処理を実装。
 
 ### 未実施・未確認
-- [ ] Stage 4 で確定した時刻基準を使って現在時刻の取得方法を確定。
-- [ ] 実際の走行中に、OuDia の時刻と MTR4 の駅間進行状況が継続的に整合するか確認。
+- [x] `OudiaTimeMatcher` が MTR4 車両の `simulationMillis()` をローカル時刻（`ZoneId.systemDefault()`）へ変換して照合する方式を実装し、Asia/Tokyo 環境で予定時刻と一致することを確認。
+- [ ] 実際の走行中に、OuDia の時刻と MTR4 の駅間進行状況が継続的に整合するか確認。今回確認した駅間の変化と紐付け維持だけでは、時刻・進捗の継続同期を証明しない。
 - [ ] 通過駅・停車駅・長時間停車・日付跨ぎの検証。
 - [ ] 遅延・早着の計算結果が期待通りか確認。
 - [ ] ATO 停止距離や必要平均速度の推定値が、実際の走行条件とどの程度一致するか確認。
@@ -376,10 +379,14 @@ CI では確認できない実際のゲーム内挙動を、対象ローダー�
 
 ### 未実施・未確認
 - [ ] 最新コミットの jar を Fabric 環境で起動。
-- [ ] 最新コミットの jar を Forge 環境で起動。
-- [ ] `reload` / `timetables` / `trains` の確認。
-- [ ] `bind` / `unbind` と SavedData の永続化確認。
-- [ ] `match` / `time-match` / `depot-match` / `time-debug` の確認。
+- [x] Forge / Minecraft 1.20.4 / MTR4 4.0.5 の実環境で `/oudiabridge trains` を使用し、車両状態・既存紐付け・未紐付け車両を確認。
+- [x] `/oudiabridge time-match` で駅間・時刻候補を照合し、唯一の時間範囲内候補を確認。
+- [x] `/oudiabridge time-bind` による新規紐付けと、車両一覧での保存状態再取得を確認。
+- [x] シングルプレイサーバーの完全停止・同一ワールド再起動後に、車両 ID と SavedData の紐付けが復元されることを確認。
+- [ ] 最新コミットの jar を Fabric 環境で起動。
+- [ ] `reload` / `timetables` の確認。
+- [ ] `bind` / `unbind` の個別動作確認。
+- [ ] `match` / `depot-match` / `time-debug` の追加確認。
 - [ ] 車庫発車前・発車直後・走行中のログ採取。
 - [ ] Stage 6 に記載したドア・発車条件の確認。
 - [ ] サーバー再起動後の状態復元確認。
@@ -431,11 +438,10 @@ CI では確認できない実際のゲーム内挙動を、対象ローダー�
 
 当面は次の順番で進める。
 
-1. **Stage 3**: `/oudiabridge depot-match` で現在 `unmatched` の車両の候補・差分を確認し、対応付けできない理由を特定する。
-2. **Stage 4**: `useRealTime=false`・繰り返し運行・深夜帯の時刻基準を追加検証する。
-
-3. **Stage 5**: 現在駅・次駅・時刻表の照合精度を検証する。
-4. **Stage 6 / 7**: MTR4 のドア・発車条件を維持したままゲーム内検証する。
+1. **Stage 5**: 今回紐付けた `あえい#192` の車両を使い、駅到着・停車・発車の各時点で OuDia 時刻と MTR4 の駅間進行状況を継続比較する。
+2. **Stage 4**: `useRealTime=true` を維持し、深夜帯・日付跨ぎ・`repeatInfinitely=true` の時刻基準を追加検証する。
+3. **Stage 3**: 複数路線・複数列車で `time-bind` の一意判定を追加検証し、車両削除・ID 再利用時の扱いを確認する。
+4. **Stage 6 / 7**: MTR4 のドア・発車条件を維持したまま、Forge の追加検証と Fabric のゲーム内検証を進める。
 5. **Stage 8**: 検証完了後にドキュメントと配布物を整える。
 
 ## 変更記録
@@ -448,6 +454,7 @@ CI では確認できない実際のゲーム内挙動を、対象ローダー�
 | 2026-11-24 | `/oudiabridge departures <timetableId> [limit]` を追加。時刻表の始発駅発車予定を読み取り専用で一覧表示し、Stage 5 の検証対象列車を選びやすくした。 |
 | 2026-11-24 | `/oudiabridge time-bind <vehicleId>` を追加。全読み込み時刻表の駅間時刻候補を集約し、予定区間内の候補が1件だけの場合に限り自動紐付けする。既存紐付けは上書きしない。 |
 | 2026-11-24 | MTR4 4.0.5 の実測で `useRealTime=true` の時刻基準を確認。`currentMillis` の UTC 日内時刻がログ時刻と一致し、発車時刻配列と車両記録値も一致。次は `depot-match` で `unmatched` の原因を調査。 |
+| 2026-11-24 | Forge / Minecraft 1.20.4 / MTR4 4.0.5 で `time-match` の一意候補（`あえい#192`、目白→黒金台、16:01:00）を確認し、`time-bind` で車両 `-5717734959325163916` に紐付け。駅間移動後も紐付けが維持され、シングルプレイサーバーの完全停止・同一ワールド再起動後にも同じ車両 ID と `あえい#192(stored)` が復元されたことを記録。継続的な時刻・進捗同期は未検証。 |
 
 ## 運用ルール
 
