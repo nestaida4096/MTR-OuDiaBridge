@@ -296,6 +296,7 @@ matchesVehicleTime=true
 
 ### 実施済み
 - [x] OuDia の駅間発着時刻を抽出。
+- [x] `/oudiabridge departures <timetableId> [limit]` を追加し、指定時刻表の当日以降の始発駅発車予定を時刻順に表示（読み取り専用）。
 - [x] 日付跨ぎを考慮して時刻列を補正する処理を実装。
 - [x] MTR4 の現在駅・次駅と OuDia の連続駅ペアを照合。
 - [x] 現在時刻から候補列車を順位付けする診断を実装。
@@ -442,6 +443,7 @@ CI では確認できない実際のゲーム内挙動を、対象ローダー�
 | 2026-11-24 | ROADMAP.md を新規作成。既存実装・調査記録・未検証事項をステージ別に整理。 |
 | 2026-11-24 | `d3dbe0d` の GitHub Actions 成功を確認。Siding に存在しない `area` アクセサと依存診断を削除した状態を記録。 |
 | 2026-11-24 | `time-debug` に Siding 発車時刻配列の件数・departureIndex 対応値・車両記録値との一致判定を追加。 |
+| 2026-11-24 | `/oudiabridge departures <timetableId> [limit]` を追加。時刻表の始発駅発車予定を読み取り専用で一覧表示し、Stage 5 の検証対象列車を選びやすくした。 |
 | 2026-11-24 | MTR4 4.0.5 の実測で `useRealTime=true` の時刻基準を確認。`currentMillis` の UTC 日内時刻がログ時刻と一致し、発車時刻配列と車両記録値も一致。次は `depot-match` で `unmatched` の原因を調査。 |
 
 ## 運用ルール
