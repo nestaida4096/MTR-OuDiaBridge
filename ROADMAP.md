@@ -184,6 +184,8 @@ MTR4 の `currentMillis`、`gameMillis`、`sidingDepartureTime` などがそれ�
 - [x] Siding の繰り返し時刻オフセットを取得する診断を実装。
 - [x] 同一 Simulator スレッド内で関連値をまとめて取得するようにした。
 - [x] `/oudiabridge time-debug <vehicleId>` を用意。
+- [x] Siding の `departures` 配列を読み取り専用アクセサで取得する診断を追加。
+- [x] `departureIndex` に対応する配列値・配列件数・`sidingDepartureTime` との一致判定を `/oudiabridge time-debug` に追加。
 - [x] `Siding.area` を Siding 自身のフィールドと仮定した誤ったアクセサを削除。
 - [x] `area` 参照に依存する診断項目も削除し、対象クラスに存在しないフィールドへのアクセスを解消。
 - [x] 上記修正後のコミット `d3dbe0d` について GitHub Actions の成功を確認。
@@ -226,7 +228,7 @@ currentMillis-lastMillis=50
 - [ ] 修正済みコードを含む最新コミットをゲーム環境へ反映。
 - [ ] `/oudiabridge time-debug <vehicleId>` の新しい出力を取得。
 - [ ] `getRepeatInterval(86400000)` の値と Depot の設定値の関係を確認。
-- [ ] Siding の実際の `departures` 配列と `Vehicle.sidingDepartureTime` / `departureIndex` の対応を確認（配列サイズ・該当インデックス値・一致判定を診断に追加）。
+- [ ] 更新版の `/oudiabridge time-debug` を実行し、Siding の `departures[departureIndex]` と `sidingDepartureTime` の一致を実測確認。
 - [ ] `useRealTime` と `repeatInfinitely` の値ごとに時刻計算を比較。
 - [ ] `timeOffsetForRepeating` と `repeatDepartures` の関係を確認。
 - [ ] 車庫発車前・発車直後・走行中の複数タイミングで同じ車両を測定。
@@ -402,6 +404,7 @@ CI では確認できない実際のゲーム内挙動を、対象ローダー�
 |---|---|
 | 2026-11-24 | ROADMAP.md を新規作成。既存実装・調査記録・未検証事項をステージ別に整理。 |
 | 2026-11-24 | `d3dbe0d` の GitHub Actions 成功を確認。Siding に存在しない `area` アクセサと依存診断を削除した状態を記録。 |
+| 2026-11-24 | `time-debug` に Siding 発車時刻配列の件数・departureIndex 対応値・車両記録値との一致判定を追加。ビルド CI 実行中。 |
 
 ## 運用ルール
 
