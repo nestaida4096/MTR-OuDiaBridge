@@ -68,6 +68,12 @@ public final class TrainDiagnosticsCommand {
                                 .executes(context -> diagnoseTimingCandidates(
                                         context.getSource(),
                                         LongArgumentType.getLong(context, "vehicleId")))))
+                .then(literal("time-bind")
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
+                                .executes(context -> bindByScheduledTime(
+                                        context.getSource(),
+                                        LongArgumentType.getLong(context, "vehicleId")))))
                 .then(literal("depot-match")
                         .requires(source -> source.hasPermission(2))
                         .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
@@ -368,6 +374,122 @@ public final class TrainDiagnosticsCommand {
         source.sendSuccess(() -> Component.literal(
                 "Collecting MTR4 vehicle state for read-only OuDia time candidate ranking..."), false);
         return 1;
+    }
+
+    /**
+     * Binds a vehicle only when exactly one loaded timetable candidate is inside its
+     * scheduled current-to-next-station time interval. Existing bindings are never replaced.
+     */
+    private static int bindByScheduledTime(CommandSourceStack source, long vehicleId) {
+        final List<Simulator> simulators;
+        try {
+            simulators = Mtr4RuntimeAccess.getSimulators();
+        } catch (Throwable throwable) {
+            CommandErrorReporter.report(source, "MTR4 runtime access failed", throwable);
+            return 0;
+        }
+        if (simulators.isEmpty()) {
+            source.sendFailure(Component.literal("MTR4 simulator is not initialized yet."));
+            return 0;
+        }
+
+        List<CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>>> futures = new ArrayList<>();
+        for (Simulator simulator : simulators) {
+            futures.add(Mtr4RuntimeAccess.collectVehicles(simulator));
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) ->
+                source.getServer().execute(() -> {
+                    if (error != null) {
+                        CommandErrorReporter.report(source, "Failed to read MTR4 vehicles", error);
+                        return;
+                    }
+
+                    Mtr4RuntimeAccess.VehicleSnapshot selected = null;
+                    for (CompletableFuture<List<Mtr4RuntimeAccess.VehicleSnapshot>> future : futures) {
+                        for (Mtr4RuntimeAccess.VehicleSnapshot vehicle : future.join()) {
+                            if (vehicle.id() == vehicleId) {
+                                selected = vehicle;
+                                break;
+                            }
+                        }
+                        if (selected != null) break;
+                    }
+                    if (selected == null) {
+                        source.sendFailure(Component.literal("MTR4 vehicle not found: " + vehicleId));
+                        return;
+                    }
+
+                    OudiaBridgeSavedData.VehicleBinding existing =
+                            OudiaVehicleBindingService.getBinding(source.getLevel(), vehicleId);
+                    if (existing != null) {
+                        source.sendFailure(Component.literal("Vehicle already has an OuDia binding: "
+                                + existing.timetableId() + "#" + existing.trainIndex()
+                                + ". Use /oudiabridge unbind before assigning a different train."));
+                        return;
+                    }
+
+                    Mtr4RuntimeAccess.VehicleSnapshot vehicle = selected;
+                    if (!vehicle.onRoute()) {
+                        source.sendFailure(Component.literal("Vehicle is not on an MTR4 route; automatic time binding was not attempted."));
+                        return;
+                    }
+
+                    var timetables = OudiaTimetableRepository.getAll();
+                    if (timetables.isEmpty()) {
+                        source.sendFailure(Component.literal("No OuDia timetables are loaded. Use /oudiabridge reload."));
+                        return;
+                    }
+
+                    ZoneId zone = ZoneId.systemDefault();
+                    List<TimeBindingCandidate> matches = new ArrayList<>();
+                    List<String> diagnostics = new ArrayList<>();
+                    for (var entry : timetables.entrySet()) {
+                        OudiaTimeMatcher.Result result =
+                                OudiaTimeMatcher.analyze(entry.getValue(), vehicle, zone);
+                        diagnostics.add(entry.getKey() + ": inside=" + result.insideCandidates().size()
+                                + ", candidates=" + result.candidateCount()
+                                + ", reason=" + result.reason());
+                        for (OudiaTimeMatcher.Candidate candidate : result.insideCandidates()) {
+                            matches.add(new TimeBindingCandidate(entry.getKey(), candidate));
+                        }
+                    }
+
+                    if (matches.isEmpty()) {
+                        source.sendFailure(Component.literal("No OuDia train is currently inside the scheduled station-pair time interval. No binding was created."));
+                        diagnostics.forEach(line -> source.sendSuccess(
+                                () -> Component.literal("  " + line), false));
+                        return;
+                    }
+                    if (matches.size() != 1) {
+                        source.sendFailure(Component.literal("Automatic time binding is ambiguous: "
+                                + matches.size() + " candidates are inside their scheduled intervals. No binding was created."));
+                        matches.stream().limit(10).forEach(match -> source.sendSuccess(() ->
+                                Component.literal("  " + match.timetableId() + "#"
+                                        + match.candidate().trainIndex() + " "
+                                        + match.candidate().direction() + " | "
+                                        + match.candidate().scheduledDepartureText() + " -> "
+                                        + match.candidate().scheduledArrivalText()), false));
+                        return;
+                    }
+
+                    TimeBindingCandidate match = matches.get(0);
+                    OudiaVehicleBindingService.bind(source.getLevel(), vehicleId,
+                            match.timetableId(), match.candidate().trainIndex());
+                    source.sendSuccess(() -> Component.literal("Automatically bound MTR4 vehicle "
+                            + vehicleId + " to " + match.timetableId() + "#"
+                            + match.candidate().trainIndex() + " | "
+                            + match.candidate().direction() + " | "
+                            + match.candidate().scheduledDepartureText() + " -> "
+                            + match.candidate().scheduledArrivalText()
+                            + " | clock=" + vehicle.simulationMillis()
+                            + " (" + zone + ")."), true);
+                }));
+        source.sendSuccess(() -> Component.literal(
+                "Collecting MTR4 vehicle state for unique scheduled-time binding..."), false);
+        return 1;
+    }
+
+    private record TimeBindingCandidate(String timetableId, OudiaTimeMatcher.Candidate candidate) {
     }
 
     /**
