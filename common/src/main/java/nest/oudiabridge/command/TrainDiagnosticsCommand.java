@@ -19,6 +19,11 @@ import nest.oudiabridge.mtr4.OudiaVehicleMatcher;
 import nest.oudiabridge.mtr4.OudiaTimeMatcher;
 import nest.oudiabridge.mtr4.OudiaDepotDepartureMatcher;
 import java.time.ZoneId;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import nest.oudiabridge.parser.OudiaParser;
 
 import java.util.ArrayList;
@@ -40,6 +45,17 @@ public final class TrainDiagnosticsCommand {
                 .then(literal("timetables")
                         .requires(source -> source.hasPermission(2))
                         .executes(context -> listTimetables(context.getSource())))
+                .then(literal("departures")
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("timetableId", StringArgumentType.string())
+                                .executes(context -> listUpcomingDepartures(
+                                        context.getSource(),
+                                        StringArgumentType.getString(context, "timetableId"), 20))
+                                .then(argument("limit", IntegerArgumentType.integer(1, 100))
+                                        .executes(context -> listUpcomingDepartures(
+                                                context.getSource(),
+                                                StringArgumentType.getString(context, "timetableId"),
+                                                IntegerArgumentType.getInteger(context, "limit"))))))
                 .then(literal("match")
                         .requires(source -> source.hasPermission(2))
                         .then(argument("vehicleId", LongArgumentType.longArg(Long.MIN_VALUE))
@@ -126,6 +142,75 @@ public final class TrainDiagnosticsCommand {
                         + " | trains=" + timetable.trains.size()
                         + " | stations=" + timetable.stations.size()), false));
         return timetables.size();
+    }
+
+    /**
+     * Lists upcoming first-station departures from an imported timetable.
+     * This command is read-only and does not inspect or modify MTR4 vehicles.
+     */
+    private static int listUpcomingDepartures(CommandSourceStack source, String timetableId, int limit) {
+        OudiaParser.ParseResult timetable = OudiaTimetableRepository.getAll().get(timetableId);
+        if (timetable == null) {
+            source.sendFailure(Component.literal("Unknown timetable: " + timetableId
+                    + ". Use /oudiabridge timetables to list loaded IDs."));
+            return 0;
+        }
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDateTime now = LocalDateTime.now(zone);
+        List<UpcomingDeparture> departures = new ArrayList<>();
+        int skipped = 0;
+        for (int trainIndex = 0; trainIndex < timetable.trains.size(); trainIndex++) {
+            UpcomingDeparture departure = firstDeparture(timetable, timetable.trains.get(trainIndex), trainIndex, now);
+            if (departure == null) skipped++;
+            else if (!departure.departureTime().isBefore(now)) departures.add(departure);
+        }
+        departures.sort(Comparator.comparing(UpcomingDeparture::departureTime)
+                .thenComparingInt(UpcomingDeparture::trainIndex));
+        source.sendSuccess(() -> Component.literal("Upcoming OuDia departures (read-only) | timetable="
+                + timetableId + " | route=" + emptyAsDash(timetable.routeName) + " | zone=" + zone
+                + " | now=" + now.format(DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss"))), false);
+        if (departures.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("No upcoming first-station departures remain for this timetable today."), false);
+        } else {
+            int shown = Math.min(limit, departures.size());
+            for (int i = 0; i < shown; i++) {
+                UpcomingDeparture departure = departures.get(i);
+                source.sendSuccess(() -> Component.literal(String.format(java.util.Locale.ROOT,
+                        "#%d | %s | %s | %s", departure.trainIndex(), departure.direction(),
+                        departure.departureTime().format(DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss")),
+                        departure.firstStation())), false);
+            }
+            if (departures.size() > shown) source.sendSuccess(() -> Component.literal(
+                    "... and " + (departures.size() - shown) + " more upcoming departure(s)."), false);
+        }
+        source.sendSuccess(() -> Component.literal("Upcoming=" + departures.size()
+                + " | trains without a usable first-station time=" + skipped + " | displayed limit=" + limit), false);
+        return departures.size();
+    }
+
+    private static UpcomingDeparture firstDeparture(OudiaParser.ParseResult timetable,
+                                                     OudiaParser.TrainData train, int trainIndex,
+                                                     LocalDateTime now) {
+        for (OudiaParser.StopTime stop : train.stops) {
+            if (stop.stopType == OudiaParser.StopType.NONE || stop.stationIndex < 0
+                    || stop.stationIndex >= timetable.stations.size()) continue;
+            String timeText = stop.departureTime == null || stop.departureTime.isBlank()
+                    ? stop.arrivalTime : stop.departureTime;
+            if (timeText == null || timeText.isBlank()) return null;
+            final int seconds;
+            try { seconds = OudiaScheduleAnalyzer.parseTime(timeText); }
+            catch (IllegalArgumentException exception) { return null; }
+            LocalDate date = now.toLocalDate().plusDays(seconds / 86400);
+            LocalTime time = LocalTime.ofSecondOfDay(Math.floorMod(seconds, 86400));
+            return new UpcomingDeparture(trainIndex,
+                    train.direction == null || train.direction.isBlank() ? "-" : train.direction,
+                    timetable.stations.get(stop.stationIndex).name, LocalDateTime.of(date, time));
+        }
+        return null;
+    }
+
+    private record UpcomingDeparture(int trainIndex, String direction,
+                                     String firstStation, LocalDateTime departureTime) {
     }
 
     /**
