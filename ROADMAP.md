@@ -170,7 +170,7 @@ MTR4 の車両が、OuDia 時刻表上のどの列車に相当するかを特定
 
 ## Stage 4 — MTR4 時刻基準・発車時刻の解明
 
-**状態: 調査中・最優先**
+**状態: 一部解明・追加条件の検証中**
 
 ### 目的
 MTR4 の `currentMillis`、`gameMillis`、`sidingDepartureTime` などがそれぞれ何を表し、どのような計算で対応するかを確定する。
@@ -224,11 +224,47 @@ currentMillis-lastMillis=50
 - `getRepeatInterval(0)=0` は 0 を引数にした結果であり、実際の繰り返し間隔が 0 だという意味ではない。
 - 上記の値だけでは、`sidingDepartureTime` を `currentMillis` に変換する正しい式は確定できない。
 
+### 2026-11-24 の追加実測
+対象車両: `-919908888133369614`（MTR4 4.0.5 / Minecraft 1.20.4 / Forge）
+
+```text
+currentMillis=1795499941624
+lastMillis=1795499941573
+gameMillis=408950
+gameMillisPerDay=1200000
+millisOfGameMidnight=728573
+useRealTime=true
+repeatDepartures=1
+getRepeatInterval(86400000)=86400000
+departures.size=288
+departures[70]=21000000
+sidingDepartureTime=21000000
+matchesVehicleTime=true
+```
+
+算出・照合:
+- `currentMillis % 86400000 = 21541624` ms = 05:59:01.624 UTC。
+- サーバーのログ時刻 14:59:01（日本時間）と一致する。
+- `sidingDepartureTime = 21000000` ms = 05:50:00 UTC = 14:50:00 JST。
+- 現在時刻は記録された車庫発車時刻より 541624 ms（約 9 分 1.6 秒）後。
+- この車両はすでに走行中のため、この差は診断時刻と発車時刻の差として自然であり、単独では異常を示さない。
+- `gameMillis` は別のゲーム内時計。今回 `useRealTime=true` のため、OuDia の実時刻との比較には `currentMillis` と UTC 日内時刻を用いる。
+
+### 現時点の結論
+- [x] 通常時刻（`useRealTime=true`）では、発車時刻配列と車両記録値は同じ UTC 日内ミリ秒の基準で保持されている。
+- [x] OuDia の時刻（日本時間）と比較するときは、UTC 日内ミリ秒を `ZoneId.systemDefault()` のローカル日付・時刻に対応付ける必要がある。
+- [ ] 日付跨ぎ・深夜時刻・別設定（`useRealTime=false` / `repeatInfinitely=true`）の実測は未完了。
+
 ### 次に実施すること
-- [ ] 修正済みコードを含む最新コミットをゲーム環境へ反映。
+- [ ] `/oudiabridge depot-match -919908888133369614` を実行し、車庫駅名・路線名・OuDia 発車時刻候補・差分を確認。現在 `trains` で `oudia=unmatched` となる直接原因を切り分ける。
+- [ ] `useRealTime=false` / `repeatInfinitely=true` の別設定で時刻基準を検証。
+- [ ] 深夜帯・日付跨ぎの発車時刻で式が成立するか確認。
+- [ ] 実測結果に基づき、Stage 3 の車庫発車マッチャーの候補判定を検証。
 - [ ] `/oudiabridge time-debug <vehicleId>` の新しい出力を取得。
-- [ ] `getRepeatInterval(86400000)` の値と Depot の設定値の関係を確認。
-- [ ] 更新版の `/oudiabridge time-debug` を実行し、Siding の `departures[departureIndex]` と `sidingDepartureTime` の一致を実測確認。
+- [x] `getRepeatInterval(86400000)` が 86400000 ms となる設定（`useRealTime=true`）の実測を取得。
+- [x] 更新版の `/oudiabridge time-debug` で `departures[departureIndex]` と `sidingDepartureTime` が一致することを確認。
+- [x] MTR4 の `currentMillis` は Unix epoch ミリ秒として扱い、`currentMillis % 86400000` が UTC 時刻の日内ミリ秒になることをログ時刻と照合。
+- [x] `sidingDepartureTime` / `departures[]` は UTC 00:00 からの当日発車ミリ秒として扱う根拠を確認（MTR4 Siding の departures コメント、および `useRealTime=true` の実測）。
 - [ ] `useRealTime` と `repeatInfinitely` の値ごとに時刻計算を比較。
 - [ ] `timeOffsetForRepeating` と `repeatDepartures` の関係を確認。
 - [ ] 車庫発車前・発車直後・走行中の複数タイミングで同じ車両を測定。
@@ -392,8 +428,9 @@ CI では確認できない実際のゲーム内挙動を、対象ローダー�
 
 当面は次の順番で進める。
 
-1. **Stage 4**: 最新の `time-debug` 出力を取得し、MTR4 の時刻基準を確定する。
-2. **Stage 3**: 確定した時刻基準を使い、車庫発車時刻による列車対応付けを検証する。
+1. **Stage 3**: `/oudiabridge depot-match` で現在 `unmatched` の車両の候補・差分を確認し、対応付けできない理由を特定する。
+2. **Stage 4**: `useRealTime=false`・繰り返し運行・深夜帯の時刻基準を追加検証する。
+
 3. **Stage 5**: 現在駅・次駅・時刻表の照合精度を検証する。
 4. **Stage 6 / 7**: MTR4 のドア・発車条件を維持したままゲーム内検証する。
 5. **Stage 8**: 検証完了後にドキュメントと配布物を整える。
@@ -404,7 +441,8 @@ CI では確認できない実際のゲーム内挙動を、対象ローダー�
 |---|---|
 | 2026-11-24 | ROADMAP.md を新規作成。既存実装・調査記録・未検証事項をステージ別に整理。 |
 | 2026-11-24 | `d3dbe0d` の GitHub Actions 成功を確認。Siding に存在しない `area` アクセサと依存診断を削除した状態を記録。 |
-| 2026-11-24 | `time-debug` に Siding 発車時刻配列の件数・departureIndex 対応値・車両記録値との一致判定を追加。ビルド CI 実行中。 |
+| 2026-11-24 | `time-debug` に Siding 発車時刻配列の件数・departureIndex 対応値・車両記録値との一致判定を追加。 |
+| 2026-11-24 | MTR4 4.0.5 の実測で `useRealTime=true` の時刻基準を確認。`currentMillis` の UTC 日内時刻がログ時刻と一致し、発車時刻配列と車両記録値も一致。次は `depot-match` で `unmatched` の原因を調査。 |
 
 ## 運用ルール
 
